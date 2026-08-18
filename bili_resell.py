@@ -310,6 +310,133 @@ def print_trend(history_path, category, current_time=None):
         print(f"    － {t}  {fmt_money(p)}")
 
 
+def detect_price_alerts(history_path, category, current_time=None,
+                        prev_n=3, abs_th=10.0, pct_th=0.10):
+    """检测价格异动：对比本次抓取与「前 prev_n 次」的高位价格。
+
+    对每个出现在本次抓取中的商品，取前 prev_n 次抓取里的最高价作为基准「高位」，
+    若本次价格低于该高位，且 (高位 - 本次) > abs_th 元 或 (高位 - 本次)/高位 > pct_th，
+    则判定为「降价异动」并标记。
+    返回 dict: {"alerts":[...], "current_time", "prev_times":[...], "baseline_count"}，
+    无历史或数据不足时返回 None。
+    """
+    rows, _ = read_history(history_path)
+    if not rows:
+        return None
+    cat = category if category else "all"
+    cat_rows = [r for r in rows if r.get("category") == cat]
+    if not cat_rows:
+        return None
+    cat_times = sorted({r["crawl_time"] for r in cat_rows})
+    if current_time and current_time in cat_times:
+        idx = cat_times.index(current_time)
+    else:
+        idx = len(cat_times) - 1
+        current_time = cat_times[idx]
+    if idx < 1:
+        return {"alerts": [], "current_time": current_time,
+                "prev_times": [], "baseline_count": 0}
+    # 前 prev_n 次（不含本次）作为基准窗口
+    prev_times = cat_times[max(0, idx - prev_n):idx]
+    if not prev_times:
+        return {"alerts": [], "current_time": current_time,
+                "prev_times": [], "baseline_count": 0}
+
+    cur_map = {r["cluster_id"]: r for r in cat_rows
+               if r["crawl_time"] == current_time}
+    # 建立 (时间, cluster_id) -> row，便于快速取前 n 次价格
+    prev_rows = {}
+    for r in cat_rows:
+        if r["crawl_time"] in prev_times:
+            prev_rows[(r["crawl_time"], r["cluster_id"])] = r
+
+    def high_price_for(iid):
+        """返回前 prev_n 次里该商品的最高价（基准高位）。"""
+        best = None
+        for t in prev_times:
+            r = prev_rows.get((t, iid))
+            if r is not None:
+                p = parse_price(r["price"])
+                if p is not None and (best is None or p > best):
+                    best = p
+        return best
+
+    alerts = []
+    for iid, r in cur_map.items():
+        cur = parse_price(r["price"])
+        if cur is None:
+            continue
+        high = high_price_for(iid)
+        if high is None:
+            continue  # 前 prev_n 次都没有该商品，无法判定基准
+        if high <= cur:
+            continue  # 没降价（持平/上涨），不提醒
+        drop_abs = high - cur
+        drop_pct = drop_abs / high if high > 0 else 0.0
+        if drop_abs > abs_th or drop_pct > pct_th:
+            alerts.append({
+                "cluster_id": iid,
+                "title": r["title"],
+                "cur": cur,
+                "high": high,
+                "drop_abs": drop_abs,
+                "drop_pct": drop_pct,
+                "url": r.get("url", ""),
+            })
+    alerts.sort(key=lambda x: (-x["drop_pct"], -x["drop_abs"]))
+    return {"alerts": alerts, "current_time": current_time,
+            "prev_times": prev_times, "baseline_count": len(cur_map)}
+
+
+def write_alert_csv(alerts, path):
+    """将价格异动列表导出为 CSV（带 BOM，Excel 中文不乱码）。"""
+    cols = ["cluster_id", "title", "high_price", "cur_price",
+            "drop_abs", "drop_pct", "url"]
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for a in alerts:
+            w.writerow({
+                "cluster_id": a["cluster_id"],
+                "title": a["title"],
+                "high_price": f"{a['high']:.2f}",
+                "cur_price": f"{a['cur']:.2f}",
+                "drop_abs": f"{a['drop_abs']:.2f}",
+                "drop_pct": f"{a['drop_pct'] * 100:.2f}",
+                "url": a["url"],
+            })
+
+
+def print_price_alerts(history_path, category, current_time=None,
+                       prev_n=3, abs_th=10.0, pct_th=0.10):
+    """打印价格异动提醒（依赖 detect_price_alerts）。返回其返回 dict。"""
+    res = detect_price_alerts(history_path, category, current_time,
+                              prev_n, abs_th, pct_th)
+    if res is None:
+        print("\n历史文件中没有数据，无法检测价格异动。")
+        return res
+    alerts = res["alerts"]
+    cat_label = category if category else "all"
+    print("\n" + "=" * 60)
+    print(f"【价格异动提醒】 分类={cat_label}")
+    print(f"  本次抓取: {res['current_time']}")
+    print(f"  对比基准: 前 {len(res['prev_times'])} 次抓取各自的最高价")
+    if res["prev_times"]:
+        print(f"           ({'  |  '.join(res['prev_times'])})")
+    print(f"  触发条件: 降价 > {abs_th:.0f} 元 或 > {pct_th * 100:.0f}%")
+    if not alerts:
+        print("  ✓ 本次未检测到符合阈值的价格异动商品。")
+        return res
+    print(f"  ⚠️ 共发现 {len(alerts)} 个降价异动商品：")
+    for a in alerts[:30]:
+        print(f"    🔻 {a['title']}")
+        print(f"       高位 {fmt_money(a['high'])} → 现 {fmt_money(a['cur'])}  "
+              f"(降 {a['drop_abs']:.2f}元 / {a['drop_pct'] * 100:.1f}%)")
+    if len(alerts) > 30:
+        print(f"    ... 其余 {len(alerts) - 30} 个见 --alert-csv 导出文件")
+    return res
+
+
 def list_filters(home):
     """列出可筛选的维度与取值（用于配合 --sort/--category/--ip）。"""
     fb = home.get("filterBar", {})
@@ -365,6 +492,16 @@ def main():
                         help="仅读取历史文件并打印最近两次的价格走势对比，不发起抓取")
     parser.add_argument("--no-overview", action="store_true",
                         help="不打印首页概览(限时大漏/筛选维度)")
+    parser.add_argument("--no-alert", action="store_true",
+                        help="关闭价格异动提醒(默认开启)")
+    parser.add_argument("--alert-prev", type=int, default=3,
+                        help="价格异动对比的历史抓取次数(默认 3，取前 n 次各自最高价作基准)")
+    parser.add_argument("--alert-abs", type=float, default=10.0,
+                        help="价格异动绝对阈值(元，默认 10)")
+    parser.add_argument("--alert-pct", type=float, default=0.10,
+                        help="价格异动相对阈值(默认 0.10 = 10%%)")
+    parser.add_argument("--alert-csv", default=None,
+                        help="将价格异动商品导出为 CSV(覆盖写入)")
     args = parser.parse_args()
 
     # 将 "all" / 空字符串 解析为「不筛选」
@@ -513,6 +650,15 @@ def main():
         append_history(ordered, args.history, cat, crawl_time)
         print(f"已追加本次抓取 ({total} 条) 到历史文件 -> {args.history}")
         print_trend(args.history, cat, current_time=crawl_time)
+
+        # 价格异动提醒：对比本次与前 N 次抓取的高位价，降价超阈值即标记
+        if not args.no_alert:
+            alert_res = print_price_alerts(
+                args.history, cat, current_time=crawl_time,
+                prev_n=args.alert_prev, abs_th=args.alert_abs, pct_th=args.alert_pct)
+            if args.alert_csv and alert_res is not None:
+                write_alert_csv(alert_res["alerts"], args.alert_csv)
+                print(f"已导出价格异动 -> {args.alert_csv}")
 
         # 抓取完成后，若历史文件已有数据，检查本次是否显著偏少（疑似漏抓）
         if os.path.exists(args.history):
