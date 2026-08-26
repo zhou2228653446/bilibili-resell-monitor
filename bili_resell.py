@@ -15,17 +15,24 @@ import argparse
 import csv
 import json
 import os
+import random
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
 
+# 解决 Windows 控制台默认 GBK 编码导致输出特殊字符/日文/Emoji 抛 UnicodeEncodeError 问题
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_URL = "https://mall.bilibili.com/mall-c-search"
-REFERER = "https://mall.bilibili.com/neul-next/resell/home.html"
+REFERER = "https://mall.bilibili.com/neul-next/resell/home.html?noTitleBar=1"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
 HEADERS = {
@@ -36,22 +43,62 @@ HEADERS = {
 }
 
 
-def api_post(path, body):
-    """调用接口并返回 data 字段；接口返回 success=false 时抛异常。"""
+def init_session_cookies():
+    """获取 B 站前端设备指纹 (buvid3 / buvid4) 并注入请求头，降低被风控限流概率。"""
+    finger_url = "https://api.bilibili.com/x/frontend/finger/spi"
+    req = urllib.request.Request(
+        finger_url,
+        headers={"User-Agent": USER_AGENT}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            b3 = data.get("data", {}).get("b_3", "")
+            b4 = data.get("data", {}).get("b_4", "")
+            if b3 or b4:
+                HEADERS["Cookie"] = f"buvid3={b3}; buvid4={b4};"
+    except Exception:
+        # 静默降级，不阻塞主流程
+        pass
+
+
+def api_post(path, body, retries=5):
+    """调用接口并返回 data 字段；支持 HTTP 429 自动指数退避重试；接口返回 success=false 时抛异常。"""
     url = BASE_URL + path
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP 错误 {e.code}: {e.reason} ({url})")
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"网络错误: {e.reason} ({url})")
+    
+    last_err = None
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            
+            if not payload.get("success"):
+                raise RuntimeError(f"接口返回失败: {payload.get('message', '未知错误')}")
+            return payload.get("data", {})
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                wait = attempt * 2.5 + random.uniform(1.0, 2.0)
+                print(f"\n  [触发 429 频率限制] 正在退避等待 {wait:.1f} 秒后重试 (第 {attempt}/{retries} 次)...", file=sys.stderr, flush=True)
+                time.sleep(wait)
+                last_err = RuntimeError(f"HTTP 错误 429: 触发频率限制 ({url})")
+            else:
+                last_err = RuntimeError(f"HTTP 错误 {e.code}: {e.reason} ({url})")
+                if attempt < retries:
+                    time.sleep(1.5)
+        except urllib.error.URLError as e:
+            last_err = RuntimeError(f"网络错误: {e.reason} ({url})")
+            if attempt < retries:
+                time.sleep(2.0)
+        except RuntimeError as e:
+            raise e
+        except Exception as e:
+            last_err = RuntimeError(f"请求异常: {e} ({url})")
+            if attempt < retries:
+                time.sleep(1.5)
 
-    if not payload.get("success"):
-        raise RuntimeError(f"接口返回失败: {payload.get('message', '未知错误')}")
-    return payload.get("data", {})
+    raise last_err if last_err else RuntimeError("未知错误")
 
 
 def get_home():
@@ -77,21 +124,56 @@ def get_feed(page_num=1, page_size=20, sort_type=None,
 
 
 def get_feed_safe(page_num=1, sort_type=None, category_id=None, ip_id=None,
-                  retries=3):
-    """带重试的分页请求：避免偶发网络抖动/限流导致整次抓取中断。
+                  retries=5):
+    """带重试的分页请求：调用 api_post（内部已具备 429 退避和重试）。"""
+    return get_feed(page_num=page_num, sort_type=sort_type,
+                    category_id=category_id, ip_id=ip_id)
 
-    多次重试仍失败才抛出，便于主流程选择「跳过该页继续」而非直接终止。
-    """
-    last_err = None
-    for attempt in range(1, retries + 1):
-        try:
-            return get_feed(page_num=page_num, sort_type=sort_type,
-                            category_id=category_id, ip_id=ip_id)
-        except RuntimeError as e:
-            last_err = e
-            if attempt < retries:
-                time.sleep(1.0)  # 退避后再试
-    raise last_err if last_err else RuntimeError("未知错误")
+
+def get_cluster_info(cluster_id):
+    """获取单个商品的市集详情与真实成交记录（官方成交均价走势与近期交易明细）。"""
+    url = "https://mall.bilibili.com/mall-search-items/items_detail/cluster_info"
+    data = json.dumps({"clusterId": str(cluster_id)}).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if payload.get("code") == 0:
+                d = payload.get("data", {})
+                basic = d.get("clusterBasicInfoFloorVO") or {}
+                price_floor = d.get("clusterPriceFloorVO") or {}
+                recent_buy = d.get("clusterRecentBuyFloorVO") or {}
+                attr_floor = d.get("clusterAttrFloorVO") or {}
+                header_floor = d.get("clusterHeaderFloorVO") or {}
+                btn_floor = d.get("clusterPurchaseButton") or {}
+
+                chart_points = recent_buy.get("chartData", {}).get("chartPoints", []) if recent_buy.get("chartData") else []
+                deals = recent_buy.get("deals", [])
+
+                latest_deal_price = None
+                if deals and len(deals) > 0 and deals[0].get("dealPrice"):
+                    latest_deal_price = str(deals[0].get("dealPrice"))
+                elif chart_points and len(chart_points) > 0:
+                    last_pt = chart_points[-1]
+                    p_val = last_pt.get("avgPrice") or last_pt.get("price")
+                    if p_val:
+                        p_val_str = str(p_val).strip()
+                        latest_deal_price = p_val_str if p_val_str.startswith("¥") else f"¥{p_val_str}"
+
+                return {
+                    "cluster_id": str(cluster_id),
+                    "title": basic.get("clusterName", ""),
+                    "images": header_floor.get("clusterImgList", []),
+                    "price_tag": price_floor.get("priceTag", {}),
+                    "lowest_price": btn_floor.get("buttonSubText", ""),
+                    "latest_deal_price": latest_deal_price,
+                    "attributes": attr_floor.get("attrList", []),
+                    "chart_points": chart_points,
+                    "deals": deals,
+                }
+    except Exception as e:
+        print(f"[Warn] 获取商品市集成交信息失败 ({cluster_id}): {e}", file=sys.stderr)
+    return None
 
 
 def normalize_item(item):
@@ -513,6 +595,9 @@ def main():
         print_trend(args.history or "3c_products_history.csv", cat)
         return
 
+    # 初始化 B 站前端设备指纹 Cookie (buvid3/buvid4)
+    init_session_cookies()
+
     try:
         home = get_home()
     except RuntimeError as e:
@@ -582,10 +667,21 @@ def main():
                 print("  (连续多页抓取失败，疑似网络中断，停止翻页)")
                 break
             page += 1
-            time.sleep(0.5)
+            time.sleep(3.0)  # 发生异常跳过时退避等待，避免连续撞在封禁窗口
             continue
         fail_streak = 0
         items = feed.get("items", [])
+
+        if not items:
+            # 接口返回空列表，表明已无更多商品
+            no_new_streak += 1
+            if no_new_streak >= 2:
+                print(f"  (第{page}页返回空列表，商品已抓取完毕，停止翻页)")
+                break
+            page += 1
+            time.sleep(0.5)
+            continue
+
         added = add_items(items)  # 按 id 去重
         if added:
             no_new_streak = 0
@@ -593,31 +689,16 @@ def main():
             if page <= 3 or len(ordered) <= 60:
                 print_items(added, start_no=len(ordered) - len(added) + 1)
         else:
-            # 本页没有新增唯一商品（空页或整页重复）
+            # 本页没有新增唯一商品（整页重复）
             no_new_streak += 1
             print(f"  (第{page}页无新增唯一商品，连续 {no_new_streak} 页)")
-            # 疑似循环：先重翻同页确认是否只是接口临时返回的少量子集，
-            # 避免 B站转售 feed 偶发「早循环」窗口导致提前停止、漏抓大量商品。
-            if no_new_streak >= 3 and no_new_streak < 8:
-                print(f"  (第{page}页连续无新增，重翻同页确认是否为接口临时窗口...)")
-                time.sleep(3)
-                try:
-                    re_feed = get_feed_safe(page_num=page, sort_type=args.sort,
-                        category_id=cat, ip_id=ip)
-                    re_added = add_items(re_feed.get("items", []))
-                    if re_added:
-                        no_new_streak = 0
-                        print(f"  (重翻第{page}页获得 {len(re_added)} 条新商品，判定为接口临时窗口，继续翻页)")
-                    else:
-                        print(f"  (重翻第{page}页仍无新增，继续观察)")
-                except RuntimeError as e:
-                    print(f"  (重翻第{page}页失败: {e}，继续观察)")
-            if no_new_streak >= 8:
-                print("  (连续多页（含重翻确认）无新增，判定当前排序下商品已抓完，停止翻页)")
+            if no_new_streak >= 5:
+                print("  (连续多页无新增商品，判定当前排序下商品已抓完，停止翻页)")
                 break
+
         has_more = feed.get("hasMore", False)
         page += 1
-        time.sleep(0.2)  # 礼貌性限速，避免请求过快
+        time.sleep(random.uniform(0.8, 1.2))  # 稳健延时，避免触发 B站频控限流
 
     if page > max_pages and (args.all or args.pages is None):
         print(f"  (已达到翻页上限 {max_pages} 页，可能在 cap 内未抓全；可上调源码 MAX_PAGES 重试)")

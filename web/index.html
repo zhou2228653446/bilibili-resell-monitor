@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>B站会员购转售 · 数据监控与捡漏看板</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bili: {
+              pink: '#FB7299',
+              blue: '#00AEEC',
+              dark: '#18191C',
+              card: '#22242B',
+              border: '#323640',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 9999px;
+    }
+    .dark .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .dark .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .glass {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-[#0f1117] dark:text-slate-100 min-h-screen transition-colors duration-200 custom-scroll">
+
+  <!-- 顶部导航栏 -->
+  <header class="sticky top-0 z-30 bg-white/80 dark:bg-[#161822]/80 glass border-b border-slate-200/80 dark:border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-pink-500/25">
+          <i data-lucide="shopping-bag" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="font-bold text-lg tracking-tight text-slate-900 dark:text-white">B站会员购转售 · 监控看板</h1>
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300">Live</span>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400" id="lastUpdatedText">数据更新中...</p>
+        </div>
+      </div>
+
+      <!-- 右侧控制区 -->
+      <div class="flex items-center space-x-2.5">
+        <!-- 自动定时巡检开关按钮 -->
+        <button id="openScheduleModalBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <span class="w-2 h-2 rounded-full bg-slate-400" id="scheduleStatusDot"></span>
+          <span id="scheduleBtnText">定时巡检: 关</span>
+        </button>
+
+        <button id="themeToggleBtn" class="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition">
+          <i data-lucide="moon" class="w-5 h-5 dark:hidden"></i>
+          <i data-lucide="sun" class="w-5 h-5 hidden dark:block"></i>
+        </button>
+
+        <button id="exportBtn" class="hidden sm:inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>导出 CSV</span>
+        </button>
+
+        <button id="refreshBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+          <i data-lucide="refresh-cw" id="refreshIcon" class="w-4 h-4"></i>
+          <span>刷新大盘</span>
+        </button>
+
+        <button id="openCrawlModalBtn" class="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md shadow-pink-500/25 hover:opacity-95 active:scale-95 transition">
+          <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+          <span>开始抓取</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 浮动 Toast 提醒容器 -->
+  <div id="toastContainer" class="fixed top-20 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- 主体内容 -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI 核心指标卡片 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <!-- 总商品数 -->
+      <div class="bg-white dark:bg-[#181a24] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-500 dark:text-slate-400">在售商品总量</p>
+          <h3 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1" id="statTotal">--</h3>
+          <p class="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex items-center space-x-0.5">
+            <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+            <span id="statHistoryTimes">共 -- 次抓取记录</span>
+          </p>
+        </div>
+        <div class="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-500 flex items-center justify-center">
+          <i data-lucide="box" class="w-6 h-6"></i>
+        </div>
+      </div>
+
+      <!-- 降价捡漏商品 -->
+      <div class="bg-white dark:bg-[#181a24] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between relative overflow-hidden">
+        <div class="absolute -right-4 -bottom-4 w-20 h-20 bg-rose-500/10 rounded-full blur-xl pointer-events-none"></div>
+        <div>
+          <p class="text-xs font-medium text-slate-500 dark:text-slate-400">降价捡漏商品</p>
+          <h3 class="text-2xl font-extrabold text-rose-500 dark:text-rose-400 mt-1" id="statAlerts">--</h3>
+          <p class="text-xs text-rose-500 flex items-center space-x-0.5 mt-1 font-medium">
+            <i data-lucide="flame" class="w-3.5 h-3.5 fill-current"></i>
+            <span>跌幅超10%或10元</span>
+          </p>
+        </div>
+        <div class="w-12 h-12 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center">
+          <i data-lucide="trending-down" class="w-6 h-6"></i>
+        </div>
+      </div>
+
+      <!-- 均价 & 价格带 -->
+      <div class="bg-white dark:bg-[#181a24] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-500 dark:text-slate-400">平均在售价格</p>
+          <h3 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1" id="statAvgPrice">--</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1" id="statMinMaxPrice">最低 ¥-- / 最高 ¥--</p>
+        </div>
+        <div class="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center">
+          <i data-lucide="badge-dollar-sign" class="w-6 h-6"></i>
+        </div>
+      </div>
+
+      <!-- 走势分布 -->
+      <div class="bg-white dark:bg-[#181a24] p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between">
+        <div class="w-full">
+          <p class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">最近价格变动分布</p>
+          <div class="flex items-center space-x-3 text-xs font-semibold">
+            <span class="text-emerald-600 dark:text-emerald-400 flex items-center" title="降价商品">
+              <i data-lucide="arrow-down-right" class="w-3.5 h-3.5 mr-0.5"></i>
+              <span id="trendDown">--</span> 降
+            </span>
+            <span class="text-rose-500 flex items-center" title="涨价商品">
+              <i data-lucide="arrow-up-right" class="w-3.5 h-3.5 mr-0.5"></i>
+              <span id="trendUp">--</span> 升
+            </span>
+            <span class="text-blue-500 flex items-center" title="新增上架">
+              <i data-lucide="plus" class="w-3.5 h-3.5 mr-0.5"></i>
+              <span id="trendNew">--</span> 新
+            </span>
+            <span class="text-slate-400 flex items-center" title="下架">
+              <i data-lucide="minus" class="w-3.5 h-3.5 mr-0.5"></i>
+              <span id="trendGone">--</span> 下
+            </span>
+          </div>
+          <div class="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full mt-2.5 overflow-hidden flex" id="trendBar">
+            <!-- 动态比例条 -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 降价捡漏雷达 (Price Alerts Carousel/Grid) -->
+    <section class="bg-gradient-to-br from-rose-500/5 via-pink-500/5 to-transparent dark:from-rose-950/20 dark:via-pink-950/10 border border-rose-200/60 dark:border-rose-900/40 rounded-2xl p-5 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center space-x-2.5">
+          <div class="p-1.5 rounded-lg bg-rose-500 text-white shadow-sm shadow-rose-500/30">
+            <i data-lucide="flame" class="w-4 h-4 fill-current"></i>
+          </div>
+          <div>
+            <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center space-x-2">
+              <span>降价捡漏雷达</span>
+              <span class="px-2 py-0.5 text-xs bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300 font-bold rounded-full" id="alertCountBadge">0 个捡漏</span>
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">对比前 3 次历史高位价，按降价幅度降序推荐</p>
+          </div>
+        </div>
+        <button id="toggleAlertsListBtn" class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center space-x-1">
+          <span>查看全部捡漏</span>
+          <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- 捡漏商品卡片滚动流 -->
+      <div class="flex space-x-3.5 overflow-x-auto pb-2 pt-1 custom-scroll" id="alertsContainer">
+        <!-- 动态生成 -->
+      </div>
+    </section>
+
+    <!-- 过滤器与搜索工具栏 -->
+    <div class="bg-white dark:bg-[#181a24] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        
+        <!-- 搜索框 -->
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          <input 
+            type="text" 
+            id="searchInput" 
+            placeholder="搜索商品标题、型号、品牌或 ID..." 
+            class="w-full pl-10 pr-4 py-2 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-pink-500/40 transition"
+          />
+          <button id="clearSearchBtn" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- 筛选与排序 -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- 分类筛选 -->
+          <select id="categoryFilter" class="px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+            <option value="all">全部分类</option>
+            <option value="898" selected>3C数码 (898)</option>
+            <option value="142">手办 (142)</option>
+            <option value="807">模型 (807)</option>
+            <option value="175">周边 (175)</option>
+            <option value="893">四驱车/拼装 (893)</option>
+            <option value="889">桌游 (889)</option>
+            <option value="121">Q版手办 (121)</option>
+            <option value="848">毛绒娃娃 (848)</option>
+          </select>
+
+          <!-- 排序规则 -->
+          <select id="sortSelect" class="px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-pink-500/40">
+            <option value="default">默认排序</option>
+            <option value="drop_desc">降价幅度优先 🔻</option>
+            <option value="price_asc">价格由低到高 ↑</option>
+            <option value="price_desc">价格由高到低 ↓</option>
+            <option value="discount_first">带优惠标签优先</option>
+          </select>
+
+          <!-- 仅看降价 Checkbox -->
+          <label class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 cursor-pointer select-none">
+            <input type="checkbox" id="onlyAlertsCheckbox" class="rounded text-pink-500 focus:ring-pink-400">
+            <span>仅看降价捡漏</span>
+          </label>
+
+          <!-- 视图切换 (Grid vs Table) -->
+          <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200/60 dark:border-slate-700/60">
+            <button id="viewGridBtn" class="p-1.5 rounded-lg bg-white dark:bg-[#181a24] text-pink-500 shadow-sm transition">
+              <i data-lucide="layout-grid" class="w-4 h-4"></i>
+            </button>
+            <button id="viewTableBtn" class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition">
+              <i data-lucide="list" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 价格区间过滤 -->
+      <div class="flex flex-wrap items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+        <div class="flex items-center space-x-2">
+          <span>价格区间:</span>
+          <input type="number" id="minPriceInput" placeholder="最低价" class="w-20 px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none">
+          <span>-</span>
+          <input type="number" id="maxPriceInput" placeholder="最高价" class="w-20 px-2 py-1 rounded-lg bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none">
+          <button id="applyPriceBtn" class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300 dark:hover:bg-slate-600 transition">筛选</button>
+        </div>
+        <div id="filterResultCount" class="font-medium text-slate-600 dark:text-slate-300">
+          共找到 0 件商品
+        </div>
+      </div>
+    </div>
+
+    <!-- 商品展示区域 (Grid / Table) -->
+    <div id="productsViewContainer">
+      <!-- 网格视图 -->
+      <div id="productsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <!-- 动态生成商品卡片 -->
+      </div>
+
+      <!-- 表格视图 -->
+      <div id="productsTableContainer" class="hidden bg-white dark:bg-[#181a24] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs sm:text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="py-3 px-4">商品信息</th>
+                <th class="py-3 px-3">现价</th>
+                <th class="py-3 px-3">参考原价</th>
+                <th class="py-3 px-3">价格变动</th>
+                <th class="py-3 px-3">标签</th>
+                <th class="py-3 px-4 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody id="productsTableBody" class="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+              <!-- 动态生成表格行 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 无数据空状态 -->
+      <div id="emptyState" class="hidden py-16 text-center">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mb-3">
+          <i data-lucide="package-search" class="w-8 h-8"></i>
+        </div>
+        <h4 class="font-bold text-slate-700 dark:text-slate-300">未找到匹配的商品</h4>
+        <p class="text-xs text-slate-500 mt-1">请尝试修改筛选条件或关键词</p>
+      </div>
+    </div>
+
+    <!-- 分页控制 -->
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2" id="paginationBar">
+      <div class="text-xs text-slate-500 dark:text-slate-400">
+        显示第 <span id="pageStart" class="font-semibold text-slate-700 dark:text-slate-200">1</span> - <span id="pageEnd" class="font-semibold text-slate-700 dark:text-slate-200">20</span> 条，共 <span id="pageTotal" class="font-semibold text-slate-700 dark:text-slate-200">0</span> 条
+      </div>
+      <div class="flex items-center space-x-1" id="pageBtnContainer">
+        <!-- 动态生成分页按钮 -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 模态框 1: 单商品历史价格走势与市集成交明细 -->
+  <div id="historyModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-start justify-between">
+        <div class="flex items-center space-x-3">
+          <img id="modalImg" src="" alt="product" referrerpolicy="no-referrer" class="w-14 h-14 rounded-xl object-cover border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900" />
+          <div class="max-w-md">
+            <h3 id="modalTitle" class="font-bold text-sm sm:text-base text-slate-900 dark:text-white line-clamp-2">商品标题</h3>
+            <div class="flex items-center space-x-2 mt-1 flex-wrap gap-y-1">
+              <span id="modalCurPrice" class="text-lg font-black text-rose-500 dark:text-rose-400">¥--</span>
+              <span id="modalLastDealPrice" class="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 px-2 py-0.5 rounded-lg flex items-center space-x-1 hidden">
+                <i data-lucide="check-circle" class="w-3 h-3 text-emerald-500"></i>
+                <span id="modalLastDealPriceText">最近成交: ¥--</span>
+              </span>
+              <span id="modalRefPrice" class="text-xs text-slate-400 line-through">原价: ¥--</span>
+              <span id="modalClusterId" class="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono">ID: --</span>
+            </div>
+          </div>
+        </div>
+        <button id="closeHistoryModalBtn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Tab 切换栏 -->
+      <div class="flex border-b border-slate-200 dark:border-slate-800 space-x-4 text-xs font-bold">
+        <button id="modalTabLocalChart" class="pb-2 border-b-2 border-pink-500 text-pink-500 transition">
+          监控采集轨迹
+        </button>
+        <button id="modalTabOfficialChart" class="pb-2 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition flex items-center space-x-1">
+          <span>B站市集成交行情</span>
+          <span id="officialPointsBadge" class="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600">--</span>
+        </button>
+        <button id="modalTabAttrs" class="pb-2 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition">
+          商品规格属性
+        </button>
+      </div>
+
+      <!-- Tab 1: 本地监控采集价格曲线 -->
+      <div id="tabContentLocalChart" class="space-y-2">
+        <div class="bg-slate-50 dark:bg-[#12141c] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <i data-lucide="line-chart" class="w-3.5 h-3.5 text-pink-500"></i>
+              <span>本地抓取价格波动时间轴</span>
+            </h4>
+            <span class="text-[11px] text-slate-400" id="historyPointsCount">共 -- 个采集节点</span>
+          </div>
+          <div class="h-56 relative w-full">
+            <canvas id="priceHistoryChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: B站官方市集成交走势与明细 -->
+      <div id="tabContentOfficialChart" class="hidden space-y-3">
+        <div class="bg-slate-50 dark:bg-[#12141c] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <span>B站官方统计 · 历史成交均价走势曲线</span>
+            </h4>
+            <span class="text-[11px] text-slate-400" id="officialDealPointsCount">官方成交数据</span>
+          </div>
+          <div class="h-48 relative w-full">
+            <canvas id="officialDealsChart"></canvas>
+          </div>
+        </div>
+
+        <!-- 详细成交订单明细（若有） -->
+        <div id="dealsSectionContainer" class="bg-slate-50 dark:bg-[#12141c] p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+          <div class="flex items-center justify-between mb-1.5 px-1">
+            <h5 class="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+              <i data-lucide="receipt" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <span>近期买家成交订单明细</span>
+            </h5>
+            <span id="dealsCountBadge" class="text-[10px] text-slate-400">--</span>
+          </div>
+          <div id="dealsListContainer" class="max-h-36 overflow-y-auto custom-scroll divide-y divide-slate-200 dark:divide-slate-800/60">
+            <!-- 动态生成成交列表或无明细提示 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: 商品规格与属性 -->
+      <div id="tabContentAttrs" class="hidden space-y-2">
+        <div class="bg-slate-50 dark:bg-[#12141c] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 max-h-60 overflow-y-auto custom-scroll">
+          <div id="attrsListContainer" class="grid grid-cols-2 gap-2 text-xs">
+            <!-- 动态生成属性 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部直达链接 -->
+      <div class="flex items-center justify-between pt-2">
+        <span class="text-xs text-slate-400">数据源: B站会员购潮玩市集</span>
+        <a id="modalBuyLink" href="#" target="_blank" class="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-bold shadow-md shadow-pink-500/25 hover:opacity-95 transition">
+          <span>前往 B站 查看市集商品</span>
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 2: 爬虫控制台与实时抓取日志 -->
+  <div id="crawlModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white shadow-md shadow-pink-500/25">
+            <i data-lucide="terminal" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-slate-900 dark:text-white">在线抓取控制台</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">调用 bili_resell.py 抓取最新商品流并写入历史库</p>
+          </div>
+        </div>
+        <button id="closeCrawlModalBtn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- 参数配置 -->
+      <div class="grid grid-cols-3 gap-3 bg-slate-50 dark:bg-[#12141c] p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 mb-1">目标分类</label>
+          <select id="crawlCategory" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <option value="898" selected>3C数码 (898)</option>
+            <option value="142">手办 (142)</option>
+            <option value="807">模型 (807)</option>
+            <option value="175">周边 (175)</option>
+            <option value="all">全部分类</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 mb-1">排序规则</label>
+          <select id="crawlSort" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <option value="hot" selected>热门推荐 (hot)</option>
+            <option value="mostListings">在售最多 (mostListings)</option>
+            <option value="priceFirst">价格优先 (priceFirst)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 mb-1">抓取范围</label>
+          <select id="crawlPages" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <option value="" selected>全量抓取 (推荐)</option>
+            <option value="3">前 3 页 (快速)</option>
+            <option value="10">前 10 页</option>
+            <option value="20">前 20 页</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 日志终端控制台 -->
+      <div class="relative bg-slate-950 text-slate-200 font-mono text-xs p-4 rounded-2xl h-64 overflow-y-auto custom-scroll border border-slate-800" id="crawlLogBox">
+        <div id="crawlLogContent" class="space-y-1">
+          <p class="text-slate-500">就绪。点击下方按钮即可启动后台爬虫...</p>
+        </div>
+      </div>
+
+      <!-- 控制按钮与状态 -->
+      <div class="flex items-center justify-between pt-1">
+        <div class="flex items-center space-x-2 text-xs">
+          <span class="w-2.5 h-2.5 rounded-full bg-slate-400" id="crawlStatusDot"></span>
+          <span id="crawlStatusText" class="font-medium text-slate-500">空闲中</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="startCrawlActionBtn" class="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-pink-500 hover:bg-pink-600 text-white text-xs font-bold shadow-md shadow-pink-500/25 transition">
+            <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+            <span>启动抓取</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 3: 自动定时巡检设置 -->
+  <div id="scheduleModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
+            <i data-lucide="timer" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-slate-900 dark:text-white">自动定时巡检监控</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">后台周期性自动抓取并自动刷新大盘</p>
+          </div>
+        </div>
+        <button id="closeScheduleModalBtn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3.5 bg-slate-50 dark:bg-[#12141c] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+        <div class="flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white">启用定时巡检</h4>
+            <p class="text-[11px] text-slate-400">开启后服务将在后台自动定期抓取</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="scheduleEnableToggle" class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-500"></div>
+          </label>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1">巡检间隔频率</label>
+          <select id="scheduleIntervalSelect" class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium">
+            <option value="5">每 5 分钟 (高频巡检)</option>
+            <option value="15">每 15 分钟 (推荐)</option>
+            <option value="30" selected>每 30 分钟 (平稳)</option>
+            <option value="60">每 1 小时 (省资源)</option>
+            <option value="120">每 2 小时</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">巡检分类</label>
+            <select id="scheduleCategory" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <option value="898" selected>3C数码 (898)</option>
+              <option value="142">手办 (142)</option>
+              <option value="807">模型 (807)</option>
+              <option value="all">全部分类</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">排序规则</label>
+            <select id="scheduleSort" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <option value="hot" selected>热门 (hot)</option>
+              <option value="priceFirst">价格优先</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 space-y-1">
+          <div class="flex justify-between">
+            <span>上次巡检时间:</span>
+            <span id="scheduleLastRun" class="font-mono text-slate-700 dark:text-slate-300">从未</span>
+          </div>
+          <div class="flex justify-between">
+            <span>预计下次巡检:</span>
+            <span id="scheduleNextRun" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-1">
+        <button id="saveScheduleBtn" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-95 text-white text-xs font-bold shadow-md shadow-emerald-500/25 transition">
+          保存并应用配置
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript 核心业务逻辑 -->
+  <script>
+    // 全局状态
+    let allProducts = [];
+    let alertsData = [];
+    let currentFiltered = [];
+    let currentView = 'grid'; // 'grid' | 'table'
+    let currentPage = 1;
+    const pageSize = 30;
+    let priceChart = null;
+    let crawlPollInterval = null;
+
+    // DOM 元素缓存
+    const els = {
+      statTotal: document.getElementById('statTotal'),
+      statAlerts: document.getElementById('statAlerts'),
+      statAvgPrice: document.getElementById('statAvgPrice'),
+      statMinMaxPrice: document.getElementById('statMinMaxPrice'),
+      statHistoryTimes: document.getElementById('statHistoryTimes'),
+      trendUp: document.getElementById('trendUp'),
+      trendDown: document.getElementById('trendDown'),
+      trendNew: document.getElementById('trendNew'),
+      trendGone: document.getElementById('trendGone'),
+      trendBar: document.getElementById('trendBar'),
+      lastUpdatedText: document.getElementById('lastUpdatedText'),
+      alertsContainer: document.getElementById('alertsContainer'),
+      alertCountBadge: document.getElementById('alertCountBadge'),
+      productsGrid: document.getElementById('productsGrid'),
+      productsTableBody: document.getElementById('productsTableBody'),
+      productsTableContainer: document.getElementById('productsTableContainer'),
+      emptyState: document.getElementById('emptyState'),
+      searchInput: document.getElementById('searchInput'),
+      clearSearchBtn: document.getElementById('clearSearchBtn'),
+      categoryFilter: document.getElementById('categoryFilter'),
+      sortSelect: document.getElementById('sortSelect'),
+      onlyAlertsCheckbox: document.getElementById('onlyAlertsCheckbox'),
+      minPriceInput: document.getElementById('minPriceInput'),
+      maxPriceInput: document.getElementById('maxPriceInput'),
+      applyPriceBtn: document.getElementById('applyPriceBtn'),
+      filterResultCount: document.getElementById('filterResultCount'),
+      pageStart: document.getElementById('pageStart'),
+      pageEnd: document.getElementById('pageEnd'),
+      pageTotal: document.getElementById('pageTotal'),
+      pageBtnContainer: document.getElementById('pageBtnContainer'),
+      viewGridBtn: document.getElementById('viewGridBtn'),
+      viewTableBtn: document.getElementById('viewTableBtn'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      refreshIcon: document.getElementById('refreshIcon'),
+      exportBtn: document.getElementById('exportBtn'),
+      themeToggleBtn: document.getElementById('themeToggleBtn'),
+      // 历史走势模态框
+      historyModal: document.getElementById('historyModal'),
+      closeHistoryModalBtn: document.getElementById('closeHistoryModalBtn'),
+      modalImg: document.getElementById('modalImg'),
+      modalTitle: document.getElementById('modalTitle'),
+      modalCurPrice: document.getElementById('modalCurPrice'),
+      modalRefPrice: document.getElementById('modalRefPrice'),
+      modalClusterId: document.getElementById('modalClusterId'),
+      modalBuyLink: document.getElementById('modalBuyLink'),
+      historyPointsCount: document.getElementById('historyPointsCount'),
+      // 爬虫控制台
+      crawlModal: document.getElementById('crawlModal'),
+      openCrawlModalBtn: document.getElementById('openCrawlModalBtn'),
+      closeCrawlModalBtn: document.getElementById('closeCrawlModalBtn'),
+      startCrawlActionBtn: document.getElementById('startCrawlActionBtn'),
+      crawlCategory: document.getElementById('crawlCategory'),
+      crawlSort: document.getElementById('crawlSort'),
+      crawlPages: document.getElementById('crawlPages'),
+      crawlLogBox: document.getElementById('crawlLogBox'),
+      crawlLogContent: document.getElementById('crawlLogContent'),
+      crawlStatusDot: document.getElementById('crawlStatusDot'),
+      crawlStatusText: document.getElementById('crawlStatusText'),
+      // 定时巡检控制
+      openScheduleModalBtn: document.getElementById('openScheduleModalBtn'),
+      closeScheduleModalBtn: document.getElementById('closeScheduleModalBtn'),
+      scheduleStatusDot: document.getElementById('scheduleStatusDot'),
+      scheduleBtnText: document.getElementById('scheduleBtnText'),
+      scheduleModal: document.getElementById('scheduleModal'),
+      scheduleEnableToggle: document.getElementById('scheduleEnableToggle'),
+      scheduleIntervalSelect: document.getElementById('scheduleIntervalSelect'),
+      scheduleCategory: document.getElementById('scheduleCategory'),
+      scheduleSort: document.getElementById('scheduleSort'),
+      scheduleLastRun: document.getElementById('scheduleLastRun'),
+      scheduleNextRun: document.getElementById('scheduleNextRun'),
+      saveScheduleBtn: document.getElementById('saveScheduleBtn'),
+      toastContainer: document.getElementById('toastContainer'),
+    };
+
+    // 初始化暗黑模式
+    function initTheme() {
+      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+    initTheme();
+
+    els.themeToggleBtn.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+      lucide.createIcons();
+    });
+
+    // 格式化金额
+    function fmtPrice(v) {
+      if (v === null || v === undefined || isNaN(v)) return '¥--';
+      return `¥${Number(v).toFixed(2)}`;
+    }
+
+    // 1. 加载主数据
+    async function loadData() {
+      els.refreshIcon.classList.add('animate-spin');
+      try {
+        const res = await fetch('/api/data');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        
+        allProducts = data.products || [];
+        alertsData = data.alerts || [];
+
+        // 渲染统计卡片
+        const stats = data.stats || {};
+        els.statTotal.textContent = stats.total_count || 0;
+        els.statAlerts.textContent = alertsData.length;
+        els.statAvgPrice.textContent = fmtPrice(stats.avg_price);
+        els.statMinMaxPrice.textContent = `最低 ${fmtPrice(stats.min_price)} / 最高 ${fmtPrice(stats.max_price)}`;
+        els.statHistoryTimes.textContent = `共 ${stats.history_points_count || 0} 次抓取基准`;
+        els.lastUpdatedText.textContent = `数据抓取于 ${stats.last_crawl_time || '刚刚'}`;
+
+        // 走势分布
+        const trend = data.trend || {};
+        els.trendUp.textContent = trend.up || 0;
+        els.trendDown.textContent = trend.down || 0;
+        els.trendNew.textContent = trend.new || 0;
+        els.trendGone.textContent = trend.gone || 0;
+
+        const totalTrend = (trend.up || 0) + (trend.down || 0) + (trend.new || 0) + (trend.same || 0);
+        if (totalTrend > 0) {
+          const downPct = ((trend.down || 0) / totalTrend) * 100;
+          const upPct = ((trend.up || 0) / totalTrend) * 100;
+          const newPct = ((trend.new || 0) / totalTrend) * 100;
+          els.trendBar.innerHTML = `
+            <div style="width: ${downPct}%" class="bg-emerald-500 h-full" title="降价 ${trend.down}"></div>
+            <div style="width: ${upPct}%" class="bg-rose-500 h-full" title="涨价 ${trend.up}"></div>
+            <div style="width: ${newPct}%" class="bg-blue-500 h-full" title="新增 ${trend.new}"></div>
+          `;
+        }
+
+        // 渲染降价雷达
+        renderAlerts(alertsData);
+
+        // 应用筛选并渲染商品列表
+        applyFilters();
+      } catch (err) {
+        console.error('加载大盘数据失败:', err);
+        alert('加载数据失败: ' + err.message);
+      } finally {
+        setTimeout(() => els.refreshIcon.classList.remove('animate-spin'), 400);
+      }
+    }
+
+    // 2. 渲染降价捡漏雷达
+    function renderAlerts(alerts) {
+      els.alertCountBadge.textContent = `${alerts.length} 个捡漏`;
+      if (!alerts || alerts.length === 0) {
+        els.alertsContainer.innerHTML = `
+          <div class="py-6 px-4 text-center text-xs text-slate-400 w-full">
+            暂无符合降幅阈值（>10元或>10%）的降价商品
+          </div>
+        `;
+        return;
+      }
+
+      els.alertsContainer.innerHTML = alerts.slice(0, 15).map(a => `
+        <div class="flex-shrink-0 w-64 bg-white dark:bg-[#181a24] p-3 rounded-2xl border border-rose-100 dark:border-rose-900/40 shadow-sm hover:shadow-md transition group flex flex-col justify-between">
+          <div>
+            <div class="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 mb-2.5">
+              <img src="${a.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" alt="${a.title}" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.src='https://i0.hdslb.com/bfs/mall/mall/default.png'" />
+              <div class="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-rose-500 text-white text-[11px] font-extrabold flex items-center space-x-1 shadow-md shadow-rose-500/30">
+                <i data-lucide="trending-down" class="w-3 h-3"></i>
+                <span>降 ${a.drop_pct}%</span>
+              </div>
+            </div>
+            <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 leading-tight mb-1.5" title="${a.title}">
+              ${a.title}
+            </h4>
+          </div>
+          <div class="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <div class="flex items-baseline justify-between flex-wrap gap-y-1">
+              <div class="flex items-baseline space-x-1 flex-wrap">
+                <span class="text-base font-black text-rose-500">${fmtPrice(a.cur_price)}</span>
+                <span id="radar-deal-${a.cluster_id}" class="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5">
+                  <span class="deal-text">${a.latest_deal_price ? `成交 ${a.latest_deal_price}` : '查成交...'}</span>
+                </span>
+                <span class="text-[11px] text-slate-400 line-through ml-1">高位 ${fmtPrice(a.high_price)}</span>
+              </div>
+              <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">省 ¥${a.drop_abs}</span>
+            </div>
+            <div class="flex items-center space-x-1.5 mt-2.5">
+              <button onclick="openHistoryModal('${a.cluster_id}')" class="flex-1 py-1.5 text-center text-[11px] font-bold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-600 dark:hover:text-pink-400 transition">
+                走势与成交
+              </button>
+              <a href="${a.url || '#'}" target="_blank" class="flex-1 py-1.5 text-center text-[11px] font-bold rounded-lg bg-pink-500 hover:bg-pink-600 text-white transition">
+                抢购
+              </a>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+      fetchMissingDeals(alerts.slice(0, 15).map(a => a.cluster_id));
+    }
+
+    // 异步拉取并刷新未缓存的最新成交价
+    let pendingFetchDeals = new Set();
+    async function fetchMissingDeals(ids) {
+      if (!ids || ids.length === 0) return;
+      const needed = ids.filter(id => {
+        const prod = allProducts.find(p => p.cluster_id === id);
+        return !prod || !prod.latest_deal_price;
+      }).filter(id => !pendingFetchDeals.has(id));
+
+      if (needed.length === 0) return;
+      needed.forEach(id => pendingFetchDeals.add(id));
+
+      try {
+        const res = await fetch('/api/batch_deals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: needed.slice(0, 16) })
+        });
+        if (!res.ok) return;
+        const dealMap = await res.json();
+
+        for (const [cid, dealPrice] of Object.entries(dealMap)) {
+          if (dealPrice) {
+            const p = allProducts.find(x => x.cluster_id === cid);
+            if (p) p.latest_deal_price = dealPrice;
+            const a = alertsData.find(x => x.cluster_id === cid);
+            if (a) a.latest_deal_price = dealPrice;
+
+            // 更新 DOM 节点
+            const cardEl = document.querySelector(`#card-deal-${cid} .deal-text`);
+            if (cardEl) cardEl.textContent = `成交 ${dealPrice}`;
+            const tableEl = document.querySelector(`#table-deal-${cid} .deal-text`);
+            if (tableEl) tableEl.textContent = `成交 ${dealPrice}`;
+            const radarEl = document.querySelector(`#radar-deal-${cid} .deal-text`);
+            if (radarEl) radarEl.textContent = `成交 ${dealPrice}`;
+          }
+        }
+      } catch (e) {
+        console.error('批量获取成交价失败:', e);
+      }
+    }
+
+    // 3. 筛选与排序逻辑
+    function applyFilters() {
+      const q = (els.searchInput.value || '').trim().toLowerCase();
+      const cat = els.categoryFilter.value;
+      const sort = els.sortSelect.value;
+      const onlyAlerts = els.onlyAlertsCheckbox.checked;
+      const minP = parseFloat(els.minPriceInput.value) || null;
+      const maxP = parseFloat(els.maxPriceInput.value) || null;
+
+      // 快速创建 alert map
+      const alertMap = new Map(alertsData.map(a => [a.cluster_id, a]));
+
+      currentFiltered = allProducts.filter(p => {
+        // 搜索词过滤
+        if (q) {
+          const matchTitle = (p.title || '').toLowerCase().includes(q);
+          const matchId = String(p.cluster_id || '').includes(q);
+          if (!matchTitle && !matchId) return false;
+        }
+
+        // 仅看降价
+        if (onlyAlerts && !alertMap.has(p.cluster_id)) {
+          return false;
+        }
+
+        // 价格区间过滤
+        const price = p.price_num;
+        if (minP !== null && (price === null || price < minP)) return false;
+        if (maxP !== null && (price === null || price > maxP)) return false;
+
+        return true;
+      });
+
+      // 排序
+      currentFiltered.sort((a, b) => {
+        const pa = a.price_num || 0;
+        const pb = b.price_num || 0;
+        const alertA = alertMap.get(a.cluster_id);
+        const alertB = alertMap.get(b.cluster_id);
+
+        if (sort === 'drop_desc') {
+          const dropA = alertA ? alertA.drop_pct : -999;
+          const dropB = alertB ? alertB.drop_pct : -999;
+          return dropB - dropA;
+        } else if (sort === 'price_asc') {
+          return pa - pb;
+        } else if (sort === 'price_desc') {
+          return pb - pa;
+        } else if (sort === 'discount_first') {
+          const hasDiscA = Boolean(a.discount);
+          const hasDiscB = Boolean(b.discount);
+          return (hasDiscB ? 1 : 0) - (hasDiscA ? 1 : 0);
+        }
+        return 0;
+      });
+
+      currentPage = 1;
+      renderCurrentPage();
+    }
+
+    // 4. 渲染当前分页数据
+    function renderCurrentPage() {
+      const total = currentFiltered.length;
+      els.filterResultCount.textContent = `共找到 ${total} 件商品`;
+      els.pageTotal.textContent = total;
+
+      if (total === 0) {
+        els.productsGrid.innerHTML = '';
+        els.productsTableBody.innerHTML = '';
+        els.emptyState.classList.remove('hidden');
+        els.pageStart.textContent = '0';
+        els.pageEnd.textContent = '0';
+        els.pageBtnContainer.innerHTML = '';
+        return;
+      }
+
+      els.emptyState.classList.add('hidden');
+      const startIdx = (currentPage - 1) * pageSize;
+      const endIdx = Math.min(startIdx + pageSize, total);
+      els.pageStart.textContent = startIdx + 1;
+      els.pageEnd.textContent = endIdx;
+
+      const pageItems = currentFiltered.slice(startIdx, endIdx);
+      const alertMap = new Map(alertsData.map(a => [a.cluster_id, a]));
+
+      if (currentView === 'grid') {
+        els.productsGrid.classList.remove('hidden');
+        els.productsTableContainer.classList.add('hidden');
+        els.productsGrid.innerHTML = pageItems.map(p => {
+          const alert = alertMap.get(p.cluster_id);
+          const delta = p.delta;
+          let deltaBadge = '';
+          if (alert) {
+            deltaBadge = `<span class="px-2 py-0.5 rounded-md bg-rose-500 text-white text-[10px] font-extrabold flex items-center space-x-0.5 shadow-sm">
+              <i data-lucide="flame" class="w-3 h-3 fill-current"></i>
+              <span>降${alert.drop_pct}%</span>
+            </span>`;
+          } else if (delta === 'new') {
+            deltaBadge = `<span class="px-2 py-0.5 rounded-md bg-blue-500 text-white text-[10px] font-extrabold">新上架</span>`;
+          } else if (typeof delta === 'number' && delta < 0) {
+            deltaBadge = `<span class="px-2 py-0.5 rounded-md bg-emerald-500 text-white text-[10px] font-bold">降 ¥${Math.abs(delta)}</span>`;
+          } else if (typeof delta === 'number' && delta > 0) {
+            deltaBadge = `<span class="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold">涨 ¥${delta}</span>`;
+          }
+
+          return `
+            <div class="bg-white dark:bg-[#181a24] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all duration-200 group flex flex-col justify-between overflow-hidden">
+              <div>
+                <div class="relative w-full aspect-square bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                  <img src="${p.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" alt="${p.title}" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.src='https://i0.hdslb.com/bfs/mall/mall/default.png'" />
+                  <div class="absolute top-2 left-2 flex flex-col space-y-1">
+                    ${deltaBadge}
+                  </div>
+                  ${p.discount ? `<div class="absolute bottom-2 right-2 px-2 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-medium backdrop-blur-sm">${p.discount}</div>` : ''}
+                </div>
+                <div class="p-3.5">
+                  <h4 class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white line-clamp-2 leading-snug mb-2 group-hover:text-pink-500 transition" title="${p.title}">
+                    ${p.title}
+                  </h4>
+                  <div class="flex items-baseline space-x-1.5 flex-wrap gap-y-1">
+                    <span class="text-base sm:text-lg font-black text-rose-500 dark:text-rose-400">${p.price || '¥--'}</span>
+                    <span id="card-deal-${p.cluster_id}" class="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5 shadow-sm">
+                      <i data-lucide="check" class="w-3 h-3 text-emerald-500 flex-shrink-0"></i>
+                      <span class="deal-text">${p.latest_deal_price ? `成交 ${p.latest_deal_price}` : '查成交...'}</span>
+                    </span>
+                    ${p.reference_price ? `<span class="text-xs text-slate-400 line-through">原价 ${p.reference_price}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="px-3.5 pb-3.5 pt-1 flex items-center space-x-2 border-t border-slate-100 dark:border-slate-800/60">
+                <button onclick="openHistoryModal('${p.cluster_id}')" class="flex-1 py-1.5 text-center text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-pink-50 dark:hover:bg-pink-950/40 hover:text-pink-600 dark:hover:text-pink-400 transition flex items-center justify-center space-x-1">
+                  <i data-lucide="line-chart" class="w-3.5 h-3.5"></i>
+                  <span>走势与成交</span>
+                </button>
+                <a href="${p.url || '#'}" target="_blank" class="flex-1 py-1.5 text-center text-xs font-bold rounded-xl bg-pink-500 hover:bg-pink-600 text-white transition flex items-center justify-center space-x-1">
+                  <span>直达</span>
+                  <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        els.productsGrid.classList.add('hidden');
+        els.productsTableContainer.classList.remove('hidden');
+        els.productsTableBody.innerHTML = pageItems.map(p => {
+          const alert = alertMap.get(p.cluster_id);
+          const delta = p.delta;
+          let deltaHtml = '<span class="text-slate-400">持平</span>';
+          if (alert) {
+            deltaHtml = `<span class="text-rose-500 font-bold">🔻 降 ${alert.drop_pct}% (-¥${alert.drop_abs})</span>`;
+          } else if (delta === 'new') {
+            deltaHtml = `<span class="text-blue-500 font-bold">＋ 新上架</span>`;
+          } else if (typeof delta === 'number' && delta < 0) {
+            deltaHtml = `<span class="text-emerald-500 font-bold">▼ 降 ¥${Math.abs(delta)}</span>`;
+          } else if (typeof delta === 'number' && delta > 0) {
+            deltaHtml = `<span class="text-rose-500 font-bold">▲ 涨 ¥${delta}</span>`;
+          }
+
+          return `
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+              <td class="py-3 px-4">
+                <div class="flex items-center space-x-3">
+                  <img src="${p.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" referrerpolicy="no-referrer" class="w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-slate-800" loading="lazy" />
+                  <div class="max-w-xs sm:max-w-md">
+                    <div class="font-bold text-slate-900 dark:text-white line-clamp-1" title="${p.title}">${p.title}</div>
+                    <div class="text-[11px] text-slate-400 font-mono">ID: ${p.cluster_id}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="py-3 px-3">
+                <div class="flex items-center space-x-1.5 flex-wrap gap-1">
+                  <span class="font-extrabold text-rose-500">${p.price || '¥--'}</span>
+                  <span id="table-deal-${p.cluster_id}" class="text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 px-1.5 py-0.5 rounded-md flex items-center space-x-0.5">
+                    <span class="deal-text">${p.latest_deal_price ? `成交 ${p.latest_deal_price}` : '查成交...'}</span>
+                  </span>
+                </div>
+              </td>
+              <td class="py-3 px-3 text-slate-400 line-through">${p.reference_price || '--'}</td>
+              <td class="py-3 px-3">${deltaHtml}</td>
+              <td class="py-3 px-3">
+                ${p.discount ? `<span class="px-2 py-0.5 rounded bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 text-xs font-semibold">${p.discount}</span>` : '--'}
+              </td>
+              <td class="py-3 px-4 text-right space-x-2">
+                <button onclick="openHistoryModal('${p.cluster_id}')" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:text-pink-500 transition">
+                  走势与成交
+                </button>
+                <a href="${p.url || '#'}" target="_blank" class="px-2.5 py-1 rounded-lg bg-pink-500 text-white text-xs font-semibold hover:bg-pink-600 transition">
+                  前往
+                </a>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      renderPagination(total);
+      lucide.createIcons();
+
+      // 异步拉取当前页可见商品的最新成交价
+      fetchMissingDeals(pageItems.map(p => p.cluster_id));
+    }
+
+    // 5. 分页控件
+    function renderPagination(total) {
+      const maxPages = Math.ceil(total / pageSize);
+      if (maxPages <= 1) {
+        els.pageBtnContainer.innerHTML = '';
+        return;
+      }
+
+      let btns = [];
+      // 上一页
+      btns.push(`
+        <button onclick="gotoPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          上一页
+        </button>
+      `);
+
+      // 页码
+      let startP = Math.max(1, currentPage - 2);
+      let endP = Math.min(maxPages, startP + 4);
+      if (endP - startP < 4) startP = Math.max(1, endP - 4);
+
+      for (let p = startP; p <= endP; p++) {
+        btns.push(`
+          <button onclick="gotoPage(${p})" class="w-8 h-8 text-xs font-bold rounded-lg ${p === currentPage ? 'bg-pink-500 text-white shadow-sm shadow-pink-500/30' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'} transition">
+            ${p}
+          </button>
+        `);
+      }
+
+      // 下一页
+      btns.push(`
+        <button onclick="gotoPage(${currentPage + 1})" ${currentPage === maxPages ? 'disabled' : ''} class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          下一页
+        </button>
+      `);
+
+      els.pageBtnContainer.innerHTML = btns.join('');
+    }
+
+    window.gotoPage = function(p) {
+      const maxPages = Math.ceil(currentFiltered.length / pageSize);
+      if (p < 1 || p > maxPages) return;
+      currentPage = p;
+      renderCurrentPage();
+      window.scrollTo({ top: 400, behavior: 'smooth' });
+    };
+
+    // 6. 商品历史走势与市集成交明细弹窗
+    let officialDealsChart = null;
+    let currentDealPoints = [];
+    let currentHistoryPoints = [];
+
+    // Tab 切换控制
+    function switchModalTab(tabName) {
+      const tabs = ['LocalChart', 'OfficialChart', 'Attrs'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`modalTab${t}`);
+        const content = document.getElementById(`tabContent${t}`);
+        if (!btn || !content) return;
+
+        if (t === tabName) {
+          btn.className = 'pb-2 border-b-2 border-pink-500 text-pink-500 transition font-bold flex items-center space-x-1';
+          content.classList.remove('hidden');
+        } else {
+          btn.className = 'pb-2 border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition flex items-center space-x-1';
+          content.classList.add('hidden');
+        }
+      });
+
+      if (tabName === 'OfficialChart') {
+        setTimeout(() => {
+          if (currentDealPoints && currentDealPoints.length > 0) {
+            renderOfficialDealsChart(currentDealPoints);
+          }
+        }, 40);
+      } else if (tabName === 'LocalChart') {
+        setTimeout(() => {
+          if (priceChart) priceChart.resize();
+        }, 40);
+      }
+    }
+
+    document.getElementById('modalTabLocalChart').addEventListener('click', () => switchModalTab('LocalChart'));
+    document.getElementById('modalTabOfficialChart').addEventListener('click', () => switchModalTab('OfficialChart'));
+    document.getElementById('modalTabAttrs').addEventListener('click', () => switchModalTab('Attrs'));
+
+    window.openHistoryModal = async function(clusterId) {
+      const prod = allProducts.find(p => p.cluster_id === clusterId) || {};
+      els.modalImg.src = prod.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png';
+      els.modalTitle.textContent = prod.title || '商品价格走势';
+      els.modalCurPrice.textContent = prod.price || '¥--';
+      els.modalRefPrice.textContent = prod.reference_price ? `原价: ${prod.reference_price}` : '';
+      els.modalClusterId.textContent = `ID: ${clusterId}`;
+      els.modalBuyLink.href = prod.url || `https://mall.bilibili.com/neul-next/resell/detail.html?noTitleBar=1&itemsId=${clusterId}`;
+
+      // 重置 Tab 到第一个
+      switchModalTab('LocalChart');
+      currentDealPoints = [];
+      currentHistoryPoints = [];
+
+      // 重置徽标与最近成交价
+      document.getElementById('modalLastDealPrice').classList.add('hidden');
+      document.getElementById('modalLastDealPriceText').textContent = '最近成交: ¥--';
+      document.getElementById('officialPointsBadge').textContent = '加载中...';
+      document.getElementById('dealsCountBadge').textContent = '加载中...';
+      document.getElementById('dealsListContainer').innerHTML = '<div class="p-4 text-center text-xs text-slate-400">正在拉取 B站市集 实时成交明细...</div>';
+      document.getElementById('attrsListContainer').innerHTML = '<div class="p-4 text-center text-xs text-slate-400">正在获取商品规格...</div>';
+
+      els.historyModal.classList.remove('hidden');
+      els.historyModal.classList.add('flex');
+      lucide.createIcons();
+
+      // 并行请求：本地历史 + B站官方市集成交数据
+      try {
+        const [histRes, dealsRes] = await Promise.allSettled([
+          fetch(`/api/product/history?id=${encodeURIComponent(clusterId)}`).then(r => r.json()),
+          fetch(`/api/product/deals?id=${encodeURIComponent(clusterId)}`).then(r => r.json()),
+        ]);
+
+        // 1. 本地采集历史
+        if (histRes.status === 'fulfilled' && histRes.value) {
+          const points = histRes.value.points || [];
+          currentHistoryPoints = points;
+          els.historyPointsCount.textContent = `共 ${points.length} 个本地采集时间节点`;
+          renderHistoryChart(points);
+        }
+
+        // 2. 官方市集成交数据
+        if (dealsRes.status === 'fulfilled' && dealsRes.value && !dealsRes.value.error) {
+          const dealData = dealsRes.value;
+          const chartPoints = dealData.chart_points || [];
+          const deals = dealData.deals || [];
+          const attrs = dealData.attributes || [];
+          currentDealPoints = chartPoints;
+
+          // 呈现最近一次成交价（位于价格右侧）
+          if (dealData.latest_deal_price) {
+            document.getElementById('modalLastDealPriceText').textContent = `最近成交: ${dealData.latest_deal_price}`;
+            document.getElementById('modalLastDealPrice').classList.remove('hidden');
+          } else {
+            document.getElementById('modalLastDealPrice').classList.add('hidden');
+          }
+
+          document.getElementById('officialPointsBadge').textContent = `${chartPoints.length}个节点`;
+          document.getElementById('dealsCountBadge').textContent = `${deals.length}笔`;
+          document.getElementById('officialDealPointsCount').textContent = `共 ${chartPoints.length} 个成交走势均价点`;
+
+          // 渲染成交记录列表
+          renderDealsList(deals);
+
+          // 渲染属性列表
+          renderAttrsList(attrs);
+        } else {
+          document.getElementById('modalLastDealPrice').classList.add('hidden');
+          document.getElementById('officialPointsBadge').textContent = '0';
+          document.getElementById('dealsCountBadge').textContent = '0';
+          document.getElementById('dealsListContainer').innerHTML = '<div class="p-4 text-center text-xs text-slate-400">暂无公开成交记录</div>';
+          document.getElementById('attrsListContainer').innerHTML = '<div class="p-4 text-center text-xs text-slate-400">暂无属性数据</div>';
+        }
+      } catch (err) {
+        console.error('拉取市集成交信息失败:', err);
+      }
+    };
+
+    function renderHistoryChart(points) {
+      const ctx = document.getElementById('priceHistoryChart').getContext('2d');
+      if (priceChart) priceChart.destroy();
+
+      if (!points || points.length === 0) return;
+
+      const labels = points.map(p => {
+        const t = p.crawl_time || '';
+        return t.length > 10 ? t.substring(5, 16) : t;
+      });
+      const dataValues = points.map(p => p.price_num);
+
+      const isDark = document.documentElement.classList.contains('dark');
+      const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+      const textColor = isDark ? '#94a3b8' : '#64748b';
+
+      priceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '在售最低价 (元)',
+            data: dataValues,
+            borderColor: '#FB7299',
+            backgroundColor: 'rgba(251, 114, 153, 0.12)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: '#FB7299',
+            pointRadius: 4,
+            pointHoverRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ` 在售价: ¥${ctx.parsed.y.toFixed(2)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: gridColor },
+              ticks: { color: textColor, font: { size: 10 } }
+            },
+            y: {
+              grid: { color: gridColor },
+              ticks: {
+                color: textColor,
+                font: { size: 10 },
+                callback: (val) => `¥${val}`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderOfficialDealsChart(points) {
+      const canvas = document.getElementById('officialDealsChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (officialDealsChart) officialDealsChart.destroy();
+
+      if (!points || points.length === 0) return;
+
+      const labels = points.map(p => p.dateLabel || '');
+      const dataValues = points.map(p => {
+        const raw = String(p.avgPrice || p.price || '').replace(/[^\d.]/g, '');
+        const val = parseFloat(raw);
+        return isNaN(val) ? null : val;
+      });
+
+      const isDark = document.documentElement.classList.contains('dark');
+      const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+      const textColor = isDark ? '#94a3b8' : '#64748b';
+
+      officialDealsChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '官方成交均价 (元)',
+            data: dataValues,
+            borderColor: '#10B981',
+            backgroundColor: 'rgba(16, 185, 129, 0.12)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: '#10B981',
+            pointRadius: 4,
+            pointHoverRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const pt = points[ctx.dataIndex];
+                  const vol = pt && pt.volume ? ` (${pt.volume}件)` : '';
+                  return ` 成交均价: ¥${ctx.parsed.y !== null && !isNaN(ctx.parsed.y) ? ctx.parsed.y.toFixed(2) : '--'}${vol}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: gridColor },
+              ticks: { color: textColor, font: { size: 10 } }
+            },
+            y: {
+              grid: { color: gridColor },
+              ticks: {
+                color: textColor,
+                font: { size: 10 },
+                callback: (val) => `¥${val}`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderDealsList(deals) {
+      const container = document.getElementById('dealsListContainer');
+      const badge = document.getElementById('dealsCountBadge');
+      if (!deals || deals.length === 0) {
+        if (badge) badge.textContent = '已汇总至上方折线图';
+        container.innerHTML = '<div class="py-4 px-3 text-center text-xs text-slate-400">💡 官方暂未开放近期单笔买家订单详情，全部历史成交价与成交量已汇总于上方走势曲线中</div>';
+        return;
+      }
+
+      if (badge) badge.textContent = `${deals.length} 笔近期订单`;
+      container.innerHTML = deals.map(d => `
+        <div class="py-2.5 px-3 flex items-center justify-between hover:bg-slate-100/60 dark:hover:bg-slate-800/40 transition">
+          <div class="flex items-center space-x-2.5">
+            <img src="${d.userAvatar || 'https://i0.hdslb.com/bfs/face/member/noface.jpg'}" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full object-cover bg-slate-200 dark:bg-slate-700" />
+            <div>
+              <div class="font-bold text-xs text-slate-800 dark:text-slate-200">${d.userName || '匿名买家'}</div>
+              <div class="text-[11px] text-slate-400">${d.dealTime || '近期'}</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-xs font-black text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-1 rounded-lg">
+              ${d.dealPrice || '¥--'}
+            </span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderAttrsList(attrs) {
+      const container = document.getElementById('attrsListContainer');
+      if (!attrs || attrs.length === 0) {
+        container.innerHTML = '<div class="col-span-2 p-6 text-center text-xs text-slate-400">暂无规格属性</div>';
+        return;
+      }
+
+      container.innerHTML = attrs.map(a => `
+        <div class="p-2.5 rounded-xl bg-white dark:bg-[#181a24] border border-slate-100 dark:border-slate-800">
+          <span class="text-[11px] text-slate-400 block">${a.attrName || '属性'}</span>
+          <span class="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">${a.attrValue || '--'}</span>
+        </div>
+      `).join('');
+    }
+
+    els.closeHistoryModalBtn.addEventListener('click', () => {
+      els.historyModal.classList.add('hidden');
+      els.historyModal.classList.remove('flex');
+    });
+
+    // 7. 爬虫控制台逻辑
+    els.openCrawlModalBtn.addEventListener('click', () => {
+      els.crawlModal.classList.remove('hidden');
+      els.crawlModal.classList.add('flex');
+      pollCrawlStatus();
+      lucide.createIcons();
+    });
+
+    els.closeCrawlModalBtn.addEventListener('click', () => {
+      els.crawlModal.classList.add('hidden');
+      els.crawlModal.classList.remove('flex');
+      if (crawlPollInterval) clearInterval(crawlPollInterval);
+    });
+
+    async function pollCrawlStatus() {
+      if (crawlPollInterval) clearInterval(crawlPollInterval);
+
+      async function check() {
+        try {
+          const res = await fetch('/api/crawl/status');
+          const status = await res.json();
+
+          if (status.running) {
+            els.crawlStatusDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+            els.crawlStatusText.textContent = `抓取执行中 (启动于 ${status.start_time})...`;
+            els.startCrawlActionBtn.disabled = true;
+            els.startCrawlActionBtn.classList.add('opacity-50', 'cursor-not-allowed');
+          } else {
+            els.crawlStatusDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+            els.crawlStatusText.textContent = status.exit_code === 0 ? '上次抓取已成功完成' : (status.exit_code !== null ? `抓取异常退出(${status.exit_code})` : '空闲');
+            els.startCrawlActionBtn.disabled = false;
+            els.startCrawlActionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
+
+          if (status.log_lines && status.log_lines.length > 0) {
+            els.crawlLogContent.innerHTML = status.log_lines.map(line => {
+              let color = 'text-slate-300';
+              if (line.includes('429')) color = 'text-amber-400';
+              if (line.includes('▲')) color = 'text-rose-400';
+              if (line.includes('▼')) color = 'text-emerald-400';
+              if (line.includes('⚠️') || line.includes('错误')) color = 'text-rose-400 font-bold';
+              return `<p class="${color}">${line}</p>`;
+            }).join('');
+            els.crawlLogBox.scrollTop = els.crawlLogBox.scrollHeight;
+          }
+        } catch (e) {
+          console.error('轮询爬虫状态失败:', e);
+        }
+      }
+
+      check();
+      crawlPollInterval = setInterval(check, 1500);
+    }
+
+    els.startCrawlActionBtn.addEventListener('click', async () => {
+      const payload = {
+        category: els.crawlCategory.value,
+        sort: els.crawlSort.value,
+        pages: els.crawlPages.value ? parseInt(els.crawlPages.value) : null,
+      };
+
+      try {
+        const res = await fetch('/api/crawl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || '启动失败');
+          return;
+        }
+        pollCrawlStatus();
+      } catch (err) {
+        alert('请求启动失败: ' + err.message);
+      }
+    });
+
+    // 8. 工具栏交互与导出
+    els.searchInput.addEventListener('input', () => {
+      els.clearSearchBtn.classList.toggle('hidden', !els.searchInput.value);
+      applyFilters();
+    });
+
+    els.clearSearchBtn.addEventListener('click', () => {
+      els.searchInput.value = '';
+      els.clearSearchBtn.classList.add('hidden');
+      applyFilters();
+    });
+
+    els.categoryFilter.addEventListener('change', applyFilters);
+    els.sortSelect.addEventListener('change', applyFilters);
+    els.onlyAlertsCheckbox.addEventListener('change', applyFilters);
+    els.applyPriceBtn.addEventListener('click', applyFilters);
+
+    els.viewGridBtn.addEventListener('click', () => {
+      currentView = 'grid';
+      els.viewGridBtn.className = 'p-1.5 rounded-lg bg-white dark:bg-[#181a24] text-pink-500 shadow-sm transition';
+      els.viewTableBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition';
+      renderCurrentPage();
+    });
+
+    els.viewTableBtn.addEventListener('click', () => {
+      currentView = 'table';
+      els.viewTableBtn.className = 'p-1.5 rounded-lg bg-white dark:bg-[#181a24] text-pink-500 shadow-sm transition';
+      els.viewGridBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition';
+      renderCurrentPage();
+    });
+
+    els.refreshBtn.addEventListener('click', loadData);
+
+    // 导出当前筛选商品到 CSV
+    els.exportBtn.addEventListener('click', () => {
+      if (currentFiltered.length === 0) {
+        alert('当前没有可导出的商品数据');
+        return;
+      }
+      const headers = ['cluster_id', 'title', 'price', 'reference_price', 'discount', 'popularity', 'url'];
+      const rows = currentFiltered.map(p => [
+        `"${p.cluster_id || ''}"`,
+        `"${(p.title || '').replace(/"/g, '""')}"`,
+        `"${p.price || ''}"`,
+        `"${p.reference_price || ''}"`,
+        `"${p.discount || ''}"`,
+        `"${p.popularity || ''}"`,
+        `"${p.url || ''}"`
+      ]);
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bili_resell_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // 9. 浮动 Toast 消息通知
+    function showToast(title, message, type = 'info') {
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-500 text-white shadow-emerald-500/30',
+        info: 'bg-slate-900 dark:bg-slate-800 text-white shadow-slate-900/30 border border-slate-700',
+        alert: 'bg-rose-500 text-white shadow-rose-500/30',
+      };
+      const icons = {
+        success: 'check-circle',
+        info: 'bell',
+        alert: 'flame',
+      };
+
+      toast.className = `pointer-events-auto flex items-center space-x-3 px-4 py-3 rounded-2xl shadow-xl ${colors[type] || colors.info} transform transition-all duration-300 translate-y-[-10px] opacity-0 animate-in fade-in slide-in-from-top-2`;
+      toast.innerHTML = `
+        <div class="flex-shrink-0">
+          <i data-lucide="${icons[type] || 'bell'}" class="w-5 h-5"></i>
+        </div>
+        <div class="flex-1">
+          <h5 class="font-bold text-xs leading-none mb-0.5">${title}</h5>
+          <p class="text-[11px] opacity-90 leading-tight">${message}</p>
+        </div>
+      `;
+
+      els.toastContainer.appendChild(toast);
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-[-10px]', 'opacity-0');
+      }, 20);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-10px]');
+        setTimeout(() => toast.remove(), 300);
+      }, 4500);
+    }
+
+    // 播放轻柔提示音 (Web Audio API)
+    function playChime() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880.0, ctx.currentTime + 0.15); // A5
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch (e) {
+        // 静默处理音频上下文被阻止的情况
+      }
+    }
+
+    // 10. 定时巡检设置逻辑
+    async function loadScheduleConfig() {
+      try {
+        const res = await fetch('/api/schedule');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        
+        els.scheduleEnableToggle.checked = Boolean(cfg.enabled);
+        els.scheduleIntervalSelect.value = String(cfg.interval_minutes || 30);
+        els.scheduleCategory.value = cfg.category || '898';
+        els.scheduleSort.value = cfg.sort || 'hot';
+        els.scheduleLastRun.textContent = cfg.last_run || '从未';
+        els.scheduleNextRun.textContent = cfg.next_run || (cfg.enabled ? '计算中...' : '已停用');
+
+        updateScheduleBadge(cfg.enabled, cfg.interval_minutes);
+      } catch (err) {
+        console.error('获取巡检配置失败:', err);
+      }
+    }
+
+    function updateScheduleBadge(enabled, interval) {
+      if (enabled) {
+        els.scheduleStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        els.scheduleBtnText.textContent = `自动巡检: 每${interval}分`;
+      } else {
+        els.scheduleStatusDot.className = 'w-2 h-2 rounded-full bg-slate-400';
+        els.scheduleBtnText.textContent = '自动巡检: 关';
+      }
+    }
+
+    els.openScheduleModalBtn.addEventListener('click', () => {
+      loadScheduleConfig();
+      els.scheduleModal.classList.remove('hidden');
+      els.scheduleModal.classList.add('flex');
+      lucide.createIcons();
+    });
+
+    els.closeScheduleModalBtn.addEventListener('click', () => {
+      els.scheduleModal.classList.add('hidden');
+      els.scheduleModal.classList.remove('flex');
+    });
+
+    els.saveScheduleBtn.addEventListener('click', async () => {
+      const payload = {
+        enabled: els.scheduleEnableToggle.checked,
+        interval_minutes: parseInt(els.scheduleIntervalSelect.value),
+        category: els.scheduleCategory.value,
+        sort: els.scheduleSort.value,
+      };
+
+      try {
+        const res = await fetch('/api/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('保存失败');
+        const resData = await res.json();
+
+        updateScheduleBadge(resData.enabled, resData.interval_minutes);
+        els.scheduleModal.classList.add('hidden');
+        els.scheduleModal.classList.remove('flex');
+        
+        showToast(
+          resData.enabled ? '自动巡检已开启' : '自动巡检已关闭',
+          resData.enabled ? `每隔 ${resData.interval_minutes} 分钟将在后台自动抓取更新` : '已停止定时巡检任务',
+          resData.enabled ? 'success' : 'info'
+        );
+      } catch (err) {
+        alert('保存巡检配置失败: ' + err.message);
+      }
+    });
+
+    // 11. 全局后台爬虫状态监听与无感自动刷新
+    let lastCrawlRunning = false;
+    async function startGlobalWatcher() {
+      setInterval(async () => {
+        try {
+          const res = await fetch('/api/crawl/status');
+          if (!res.ok) return;
+          const status = await res.json();
+
+          // 状态跃迁：正在运行 -> 运行结束
+          if (lastCrawlRunning && !status.running) {
+            if (status.exit_code === 0) {
+              await loadData();
+              playChime();
+              showToast('大盘数据已自动更新', `本次巡检已完成，共加载 ${allProducts.length} 件在售商品，发现 ${alertsData.length} 件降价捡漏！`, 'alert');
+            } else {
+              showToast('抓取结束', `爬虫退出，状态码: ${status.exit_code}`, 'info');
+            }
+          }
+          lastCrawlRunning = status.running;
+        } catch (e) {
+          // 忽略轮询偶发异常
+        }
+      }, 4000);
+    }
+
+    // 初始加载
+    loadData();
+    loadScheduleConfig();
+    startGlobalWatcher();
+  </script>
+</body>
+</html>
