@@ -73,10 +73,48 @@ def save_pushed_cache(cache):
         pass
 
 
+def validate_and_sanitize_wecom_url(url):
+    """校验并清洗企业微信 Webhook 链接，精准拦截常见误粘链接。"""
+    if not url:
+        return None, "请输入企业微信群机器人 Webhook 地址"
+
+    url = str(url).strip().strip('"').strip("'").strip()
+
+    # 常见误区 1: 复制了机器人主页/卡片分享链接 (openBotProfile)
+    if "openBotProfile" in url or "wework_admin" in url:
+        return None, (
+            "您刚才复制的是「机器人主页分享链接」，不是「Webhook 接口地址」！\n\n"
+            "👉【正确获取位置】：\n"
+            "1. 在企业微信群聊设置中，点击您添加的机器人头像/名字；\n"
+            "2. 在面板下方找到「Webhook 地址」一栏（带有 key=... 参数）；\n"
+            "3. 点击旁边的「复制」按钮（正确格式应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...）。"
+        )
+
+    # 自动容错: 用户只填了 key=xxxx 或纯 UUID
+    if url.startswith("key="):
+        return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?{url}", None
+
+    if len(url) == 36 and url.count("-") == 4:
+        return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={url}", None
+
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return None, "Webhook 地址必须以 https:// 开头"
+
+    if "qyapi.weixin.qq.com" not in url or "webhook/send" not in url:
+        return None, (
+            "链接格式不正确！企业微信群机器人标准 Webhook 地址应以\n"
+            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头。\n"
+            "请进入群设置 -> 点击机器人名字 -> 复制「Webhook 地址」。"
+        )
+
+    return url, None
+
+
 def send_wecom_markdown(webhook_url, markdown_text):
     """向企业微信机器人发送 Markdown 消息。"""
-    if not webhook_url or not webhook_url.startswith("http"):
-        return False, "无效的企业微信 Webhook 地址"
+    clean_url, err = validate_and_sanitize_wecom_url(webhook_url)
+    if err:
+        return False, err
 
     payload = {
         "msgtype": "markdown",
@@ -86,7 +124,7 @@ def send_wecom_markdown(webhook_url, markdown_text):
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        webhook_url,
+        clean_url,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST"
