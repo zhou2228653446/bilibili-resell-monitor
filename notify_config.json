@@ -1,6 +1,8 @@
 {
   "enabled": true,
-  "channel": "wecom",
+  "channel": "pushplus",
+  "pushplus_token": "6bef809cdfdf47c68ddd8de3a9476894",
+  "serverchan_key": "",
   "wecom_webhook": "https://work.weixin.qq.com/wework_admin/common/openBotProfile/243ccc3b598569fc6ecaf2ab744537b744",
   "min_drop_pct": 10,
   "min_drop_abs": 10,
