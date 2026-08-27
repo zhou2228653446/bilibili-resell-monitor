@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-B站转售监控 - 通讯软件消息推送模块 (Notifier)
-支持企业微信群机器人 Webhook，支持富文本 Markdown 排版、捡漏防重推送与测试消息。
+B站转售监控 - 消息推送模块 (Notifier)
+支持：
+1. 微信推送（PushPlus 推送加 - 扫码即用，每天免费200条）
+2. 微信推送（Server酱 Turbo - 方糖服务号推送）
+3. 企业微信群机器人 Webhook
 """
 
 import json
@@ -10,6 +13,7 @@ import os
 import sys
 import time
 import urllib.request
+import urllib.parse
 import urllib.error
 
 # 配置文件路径
@@ -19,7 +23,9 @@ PUSHED_CACHE_PATH = os.path.join(BASE_DIR, "pushed_alerts.json")
 
 DEFAULT_CONFIG = {
     "enabled": False,
-    "channel": "wecom",
+    "channel": "pushplus",  # "pushplus" | "serverchan" | "wecom"
+    "pushplus_token": "",
+    "serverchan_key": "",
     "wecom_webhook": "",
     "min_drop_pct": 10.0,
     "min_drop_abs": 10.0,
@@ -73,58 +79,23 @@ def save_pushed_cache(cache):
         pass
 
 
-def validate_and_sanitize_wecom_url(url):
-    """校验并清洗企业微信 Webhook 链接，精准拦截常见误粘链接。"""
-    if not url:
-        return None, "请输入企业微信群机器人 Webhook 地址"
+# ==================== 1. 微信推送：PushPlus (推荐) ====================
+def send_pushplus(token, title, content_markdown):
+    """向个人微信 (PushPlus 推送加服务号) 发送 Markdown 卡片消息。"""
+    token = str(token).strip()
+    if not token:
+        return False, "PushPlus Token 不能为空，请登录 www.pushplus.plus 扫码获取"
 
-    url = str(url).strip().strip('"').strip("'").strip()
-
-    # 常见误区 1: 复制了机器人主页/卡片分享链接 (openBotProfile)
-    if "openBotProfile" in url or "wework_admin" in url:
-        return None, (
-            "您刚才复制的是「机器人主页分享链接」，不是「Webhook 接口地址」！\n\n"
-            "👉【正确获取位置】：\n"
-            "1. 在企业微信群聊设置中，点击您添加的机器人头像/名字；\n"
-            "2. 在面板下方找到「Webhook 地址」一栏（带有 key=... 参数）；\n"
-            "3. 点击旁边的「复制」按钮（正确格式应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...）。"
-        )
-
-    # 自动容错: 用户只填了 key=xxxx 或纯 UUID
-    if url.startswith("key="):
-        return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?{url}", None
-
-    if len(url) == 36 and url.count("-") == 4:
-        return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={url}", None
-
-    if not url.startswith("http://") and not url.startswith("https://"):
-        return None, "Webhook 地址必须以 https:// 开头"
-
-    if "qyapi.weixin.qq.com" not in url or "webhook/send" not in url:
-        return None, (
-            "链接格式不正确！企业微信群机器人标准 Webhook 地址应以\n"
-            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头。\n"
-            "请进入群设置 -> 点击机器人名字 -> 复制「Webhook 地址」。"
-        )
-
-    return url, None
-
-
-def send_wecom_markdown(webhook_url, markdown_text):
-    """向企业微信机器人发送 Markdown 消息。"""
-    clean_url, err = validate_and_sanitize_wecom_url(webhook_url)
-    if err:
-        return False, err
-
+    url = "https://www.pushplus.plus/send"
     payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "content": markdown_text
-        }
+        "token": token,
+        "title": title,
+        "content": content_markdown,
+        "template": "markdown"
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        clean_url,
+        url,
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST"
@@ -133,43 +104,119 @@ def send_wecom_markdown(webhook_url, markdown_text):
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             res = json.loads(resp.read().decode("utf-8"))
-            if res.get("errcode") == 0:
-                return True, "发送成功"
-            return False, f"企微接口返回错误 ({res.get('errcode')}): {res.get('errmsg')}"
-    except urllib.error.HTTPError as e:
-        return False, f"HTTP 请求失败 ({e.code}): {e.reason}"
+            if res.get("code") == 200:
+                return True, "微信推送成功！"
+            return False, f"PushPlus 返回错误: {res.get('msg', res)}"
     except Exception as e:
-        return False, f"网络请求异常: {e}"
+        return False, f"PushPlus 网络请求失败: {e}"
 
 
-def send_test_message(webhook_url):
-    """发送测试消息以验证企微机器人连通性。"""
+# ==================== 2. 微信推送：Server酱 Turbo ====================
+def send_serverchan(sendkey, title, content_markdown):
+    """向个人微信 (Server酱 / 方糖服务号) 发送消息。"""
+    sendkey = str(sendkey).strip()
+    if not sendkey:
+        return False, "Server酱 SendKey 不能为空，请登录 sct.ftqq.com 扫码获取"
+
+    url = f"https://sctapi.ftqq.com/{sendkey}.send"
+    params = urllib.parse.urlencode({
+        "title": title,
+        "desp": content_markdown
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=params, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            if res.get("code") == 0:
+                return True, "微信推送成功！"
+            return False, f"Server酱返回错误: {res.get('message', res)}"
+    except Exception as e:
+        return False, f"Server酱网络请求失败: {e}"
+
+
+# ==================== 3. 企业微信群机器人 Webhook ====================
+def send_wecom(webhook_url, content_markdown):
+    """向企业微信群机器人发送 Markdown 消息。"""
+    url = str(webhook_url).strip()
+    if not url or not url.startswith("http"):
+        return False, "无效的企业微信 Webhook 地址"
+
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {"content": content_markdown}
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            if res.get("errcode") == 0:
+                return True, "企微发送成功"
+            return False, f"企微接口返回错误: {res.get('errmsg')}"
+    except Exception as e:
+        return False, f"网络请求失败: {e}"
+
+
+# ==================== 统一消息分发与格式化 ====================
+def send_unified_message(channel, title, markdown_text, config):
+    """统一向指定渠道分发消息。"""
+    if channel == "pushplus":
+        token = config.get("pushplus_token", "").strip()
+        return send_pushplus(token, title, markdown_text)
+    elif channel == "serverchan":
+        key = config.get("serverchan_key", "").strip()
+        return send_serverchan(key, title, markdown_text)
+    elif channel == "wecom":
+        url = config.get("wecom_webhook", "").strip()
+        return send_wecom(url, markdown_text)
+    else:
+        return False, f"未知的推送渠道: {channel}"
+
+
+def send_test_message(config=None):
+    """发送微信测试消息以验证连通性。"""
+    if config is None:
+        config = load_notify_config()
+
+    channel = config.get("channel", "pushplus")
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-    md = f"""### 🔔 **【B站转售监控 · 消息推送联调测试】**
-> 📱 **接收端**：企业微信群机器人
-> 状态：<font color="info">连接正常 ✓</font>
-> ⏰ **测试时间**：{now_str}
-> 💡 **监控说明**：后续巡检发现降价捡漏商品时，将自动推送至本群。
+    channel_name = {
+        "pushplus": "微信 (PushPlus 推送加)",
+        "serverchan": "微信 (Server酱 / 方糖气球)",
+        "wecom": "企业微信群机器人"
+    }.get(channel, channel)
 
-[点击进入本地监控大盘](http://localhost:8000)"""
-    return send_wecom_markdown(webhook_url, md)
+    title = "🔔【B站转售监控 · 微信推送联调测试】"
+    md = f"""### 🔔 **B站转售监控 · 微信消息推送测试**
+
+- 📱 **推送通道**：{channel_name}
+- ✅ **连接状态**：正常已联通
+- ⏰ **测试时间**：{now_str}
+- 💡 **提示**：后续自动巡检中若发现降价捡漏商品，将自动通过微信发送至本窗口。
+
+---
+[👉 点击打开本地监控大盘](http://localhost:8000)
+"""
+    return send_unified_message(channel, title, md, config)
 
 
 def format_alerts_markdown(alerts, total_items_count=None):
-    """将捡漏列表格式化为企微 Markdown 富文本消息。"""
+    """将捡漏列表格式化为 Markdown 富文本消息。"""
     if not alerts:
         return ""
 
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         f"### ⚡ **【B站转售 · 发现 {len(alerts)} 件新降价捡漏！】**",
-        f"> ⏰ **巡检时间**：{now_str}",
+        f"- ⏰ **巡检时间**：{now_str}",
     ]
     if total_items_count:
-        lines.append(f"> 📊 **在售商品总库**：{total_items_count} 件")
-    lines.append("")
+        lines.append(f"- 📊 **监控总在售商品**：{total_items_count} 件")
+    lines.append("\n---\n")
 
-    # 最多展示前 8 条，避免超出企微单条消息 4096 字符限制
+    # 最多展示前 8 条
     for idx, a in enumerate(alerts[:8], 1):
         title = a.get("title", "未命名商品")
         cur_p = a.get("cur_price")
@@ -178,36 +225,27 @@ def format_alerts_markdown(alerts, total_items_count=None):
         drop_abs = a.get("drop_abs")
         url = a.get("url", "#")
         latest_deal = a.get("latest_deal_price", "")
-
-        deal_str = f" | 最近成交: {latest_deal}" if latest_deal else ""
+        deal_str = f" (最近成交: {latest_deal})" if latest_deal else ""
 
         lines.append(f"**{idx}. [{title}]({url})**")
-        lines.append(f"> 🔻 降幅：<font color=\"warning\">**降 {drop_pct}%** (-¥{drop_abs})</font>")
-        lines.append(f"> 💰 底价：<font color=\"info\">**¥{cur_p}**</font> (原高位: ¥{high_p}{deal_str})")
+        lines.append(f"- 🔻 **降幅**：降 **{drop_pct}%** (-¥{drop_abs})")
+        lines.append(f"- 💰 **底价**：¥**{cur_p}** (历史高位: ¥{high_p}{deal_str})")
         lines.append("")
 
     if len(alerts) > 8:
-        lines.append(f"> ... 及其他 {len(alerts) - 8} 件降价商品，请前往大盘查看完整列表。")
+        lines.append(f"\n*... 及其他 {len(alerts) - 8} 件降价商品，请前往大盘查看完整列表。*")
 
-    lines.append("\n[👉 点击打开监控大盘查看详情](http://localhost:8000)")
+    lines.append("\n[👉 点击打开本地监控大盘抢购](http://localhost:8000)")
     return "\n".join(lines)
 
 
 def process_and_send_alerts(alerts, total_items_count=None, force=False):
-    """
-    检查新出现的捡漏商品并执行企业微信推送（带去重机制）。
-    :param alerts: 降价捡漏商品列表
-    :param total_items_count: 当前在售总量
-    :param force: 是否强制推送所有（忽略去重）
-    """
+    """检查新出现的捡漏商品并执行微信推送（带去重机制）。"""
     cfg = load_notify_config()
     if not cfg.get("enabled"):
         return False, "推送功能未开启"
 
-    webhook_url = cfg.get("wecom_webhook", "").strip()
-    if not webhook_url:
-        return False, "未配置企业微信 Webhook"
-
+    channel = cfg.get("channel", "pushplus")
     min_drop_pct = float(cfg.get("min_drop_pct", 10.0))
     min_drop_abs = float(cfg.get("min_drop_abs", 10.0))
 
@@ -231,7 +269,6 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
         cur_p = float(a.get("cur_price", 0))
         last_pushed_price = pushed_cache.get(cid)
 
-        # 没推送过，或者比上次推送价格更低
         if force or last_pushed_price is None or cur_p < float(last_pushed_price) - 0.01:
             new_alerts_to_push.append(a)
             pushed_cache[cid] = cur_p
@@ -240,21 +277,20 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
         return True, "所有捡漏商品已在此前推送过，跳过重复发送"
 
     # 3. 构造富文本消息并发送
+    title = f"⚡【B站转售 · 发现 {len(new_alerts_to_push)} 件新降价捡漏！】"
     md_content = format_alerts_markdown(new_alerts_to_push, total_items_count)
-    ok, msg = send_wecom_markdown(webhook_url, md_content)
+    ok, msg = send_unified_message(channel, title, md_content, cfg)
     if ok:
         save_pushed_cache(pushed_cache)
-        print(f"[Notifier] 成功向企业微信推送 {len(new_alerts_to_push)} 件新降价商品！")
+        print(f"[Notifier] 成功向 {channel} 推送 {len(new_alerts_to_push)} 件新降价商品！")
     else:
-        print(f"[Notifier] 企业微信推送失败: {msg}", file=sys.stderr)
+        print(f"[Notifier] 微信推送失败: {msg}", file=sys.stderr)
 
     return ok, msg
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        cfg = load_notify_config()
-        url = sys.argv[2] if len(sys.argv) > 2 else cfg.get("wecom_webhook")
-        print(f"正在向 {url} 发送测试消息...")
-        success, res_msg = send_test_message(url)
-        print(f"结果: {'成功' if success else '失败'} - {res_msg}")
+    cfg = load_notify_config()
+    print("正在测试发送微信消息...")
+    ok, res = send_test_message(cfg)
+    print(f"结果: {'成功' if ok else '失败'} -> {res}")

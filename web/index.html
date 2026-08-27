@@ -83,11 +83,11 @@
 
       <!-- 右侧控制区 -->
       <div class="flex items-center space-x-2.5">
-        <!-- 企微推送配置按钮 -->
+        <!-- 微信推送配置按钮 -->
         <button id="openNotifyModalBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
           <span class="w-2 h-2 rounded-full bg-slate-400" id="notifyStatusDot"></span>
-          <i data-lucide="send" class="w-3.5 h-3.5 text-blue-500"></i>
-          <span id="notifyBtnText">企微推送</span>
+          <i data-lucide="message-circle" class="w-3.5 h-3.5 text-emerald-500"></i>
+          <span id="notifyBtnText">微信推送</span>
         </button>
 
         <!-- 自动定时巡检开关按钮 -->
@@ -607,17 +607,17 @@
     </div>
   </div>
 
-  <!-- 模态框 4: 企业微信捡漏通知推送设置 -->
+  <!-- 模态框 4: 微信捡漏通知推送设置 -->
   <div id="notifyModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
     <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/25">
-            <i data-lucide="bell-ring" class="w-5 h-5"></i>
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-green-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
+            <i data-lucide="message-circle" class="w-5 h-5"></i>
           </div>
           <div>
-            <h3 class="font-bold text-base text-slate-900 dark:text-white">企业微信 · 捡漏消息推送</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400">后台巡检发现降价捡漏时自动推送至群聊</p>
+            <h3 class="font-bold text-base text-slate-900 dark:text-white">微信 · 降价捡漏消息推送</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">后台巡检发现降价捡漏时自动推送到您的手机微信</p>
           </div>
         </div>
         <button id="closeNotifyModalBtn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition">
@@ -628,21 +628,54 @@
       <div class="space-y-3.5 bg-slate-50 dark:bg-[#12141c] p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
         <div class="flex items-center justify-between">
           <div>
-            <h4 class="text-xs font-bold text-slate-900 dark:text-white">启用企微推送</h4>
-            <p class="text-[11px] text-slate-400">巡检完成时有新降价商品将立即推送</p>
+            <h4 class="text-xs font-bold text-slate-900 dark:text-white">启用微信推送</h4>
+            <p class="text-[11px] text-slate-400">巡检完成有新降价捡漏时立即发送微信卡片通知</p>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" id="notifyEnableToggle" class="sr-only peer">
-            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-500"></div>
+            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-500"></div>
           </label>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-500 mb-1">企业微信群机器人 Webhook 地址</label>
-          <input type="text" id="notifyWebhookInput" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          <label class="block text-xs font-semibold text-slate-500 mb-1">推送通道选择</label>
+          <select id="notifyChannelSelect" class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold">
+            <option value="pushplus" selected>🏆 PushPlus 推送加 (微信扫码即用 · 每日免费200条 · 最推荐)</option>
+            <option value="serverchan">🚀 Server酱 Turbo (方糖服务号推送)</option>
+            <option value="wecom">🏢 企业微信群机器人 Webhook</option>
+          </select>
         </div>
 
-        <div class="grid grid-cols-2 gap-2.5">
+        <!-- 通道 1: PushPlus 输入项 -->
+        <div id="channelPushplusContainer">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">PushPlus Token</label>
+          <input type="text" id="notifyPushplusToken" placeholder="请输入您的 PushPlus Token (如: 9876543210abcdef...)" class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+          <div class="mt-2 text-[11px] text-slate-500 bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900/40 space-y-1">
+            <div class="font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+              <i data-lucide="help-circle" class="w-3 h-3"></i>
+              <span>10秒获取微信推送 Token：</span>
+            </div>
+            <p class="leading-relaxed">1. 打开 <a href="https://www.pushplus.plus/" target="_blank" class="text-emerald-600 dark:text-emerald-400 underline font-bold">www.pushplus.plus</a> 微信扫码一键登录；<br>2. 复制首页的「一对一推送 Token」粘贴到上方；<br>3. 点击下方「发送测试消息」即可在微信收到通知！</p>
+          </div>
+        </div>
+
+        <!-- 通道 2: Server酱 输入项 -->
+        <div id="channelServerchanContainer" class="hidden">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">Server酱 SendKey</label>
+          <input type="text" id="notifyServerchanKey" placeholder="请输入 Server酱 SendKey (如: SCT...)" class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+          <div class="mt-2 text-[11px] text-slate-500 bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
+            <p>1. 打开 <a href="https://sct.ftqq.com/" target="_blank" class="text-emerald-600 dark:text-emerald-400 underline font-bold">sct.ftqq.com</a> 微信扫码登录；2. 复制 SendKey 粘贴至上方。</p>
+          </div>
+        </div>
+
+        <!-- 通道 3: 企业微信 Webhook 输入项 -->
+        <div id="channelWecomContainer" class="hidden">
+          <label class="block text-xs font-semibold text-slate-500 mb-1">企业微信群机器人 Webhook 地址</label>
+          <input type="text" id="notifyWebhookInput" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none" />
+        </div>
+
+        <!-- 阈值设置 -->
+        <div class="grid grid-cols-2 gap-2.5 pt-1">
           <div>
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">最低降幅百分比 (%)</label>
             <input type="number" id="notifyMinDropPct" value="10" min="1" max="100" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
@@ -652,15 +685,6 @@
             <input type="number" id="notifyMinDropAbs" value="10" min="1" max="1000" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
           </div>
         </div>
-
-        <!-- 极速指引 -->
-        <div class="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 space-y-1 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 rounded-xl border border-blue-100 dark:border-blue-900/40">
-          <div class="font-bold text-blue-600 dark:text-blue-400 flex items-center space-x-1">
-            <i data-lucide="help-circle" class="w-3 h-3"></i>
-            <span>1分钟极速获取 Webhook：</span>
-          </div>
-          <p class="leading-relaxed">① 在企业微信任意群聊点击右上角「···」 ➔ ② 点击「添加群机器人」 ➔ ③ 点击「新建」 ➔ ④ 复制 Webhook 链接粘贴至上方。</p>
-        </div>
       </div>
 
       <div class="flex items-center space-x-2 pt-1">
@@ -668,7 +692,7 @@
           <i data-lucide="send" class="w-3.5 h-3.5"></i>
           <span>发送测试消息</span>
         </button>
-        <button id="saveNotifyBtn" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:opacity-95 text-white text-xs font-bold shadow-md shadow-blue-500/25 transition">
+        <button id="saveNotifyBtn" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 hover:opacity-95 text-white text-xs font-bold shadow-md shadow-emerald-500/25 transition">
           保存配置
         </button>
       </div>
@@ -760,13 +784,19 @@
       scheduleLastRun: document.getElementById('scheduleLastRun'),
       scheduleNextRun: document.getElementById('scheduleNextRun'),
       saveScheduleBtn: document.getElementById('saveScheduleBtn'),
-      // 企微推送控制
+      // 微信推送控制
       openNotifyModalBtn: document.getElementById('openNotifyModalBtn'),
       closeNotifyModalBtn: document.getElementById('closeNotifyModalBtn'),
       notifyStatusDot: document.getElementById('notifyStatusDot'),
       notifyBtnText: document.getElementById('notifyBtnText'),
       notifyModal: document.getElementById('notifyModal'),
       notifyEnableToggle: document.getElementById('notifyEnableToggle'),
+      notifyChannelSelect: document.getElementById('notifyChannelSelect'),
+      channelPushplusContainer: document.getElementById('channelPushplusContainer'),
+      channelServerchanContainer: document.getElementById('channelServerchanContainer'),
+      channelWecomContainer: document.getElementById('channelWecomContainer'),
+      notifyPushplusToken: document.getElementById('notifyPushplusToken'),
+      notifyServerchanKey: document.getElementById('notifyServerchanKey'),
       notifyWebhookInput: document.getElementById('notifyWebhookInput'),
       notifyMinDropPct: document.getElementById('notifyMinDropPct'),
       notifyMinDropAbs: document.getElementById('notifyMinDropAbs'),
@@ -1785,7 +1815,19 @@
       }, 4000);
     }
 
-    // 12. 企业微信消息推送逻辑
+    // 12. 微信消息推送逻辑 (PushPlus / Server酱 / 企微)
+    function updateNotifyChannelUI() {
+      if (!els.notifyChannelSelect) return;
+      const ch = els.notifyChannelSelect.value;
+      if (els.channelPushplusContainer) els.channelPushplusContainer.classList.toggle('hidden', ch !== 'pushplus');
+      if (els.channelServerchanContainer) els.channelServerchanContainer.classList.toggle('hidden', ch !== 'serverchan');
+      if (els.channelWecomContainer) els.channelWecomContainer.classList.toggle('hidden', ch !== 'wecom');
+    }
+
+    if (els.notifyChannelSelect) {
+      els.notifyChannelSelect.addEventListener('change', updateNotifyChannelUI);
+    }
+
     async function loadNotifyConfig() {
       try {
         const res = await fetch('/api/notify/config');
@@ -1793,10 +1835,14 @@
         const cfg = await res.json();
 
         if (els.notifyEnableToggle) els.notifyEnableToggle.checked = Boolean(cfg.enabled);
+        if (els.notifyChannelSelect) els.notifyChannelSelect.value = cfg.channel || 'pushplus';
+        if (els.notifyPushplusToken) els.notifyPushplusToken.value = cfg.pushplus_token || '';
+        if (els.notifyServerchanKey) els.notifyServerchanKey.value = cfg.serverchan_key || '';
         if (els.notifyWebhookInput) els.notifyWebhookInput.value = cfg.wecom_webhook || '';
         if (els.notifyMinDropPct) els.notifyMinDropPct.value = cfg.min_drop_pct || 10;
         if (els.notifyMinDropAbs) els.notifyMinDropAbs.value = cfg.min_drop_abs || 10;
 
+        updateNotifyChannelUI();
         updateNotifyBadge(cfg.enabled);
       } catch (err) {
         console.error('获取推送配置失败:', err);
@@ -1805,11 +1851,11 @@
 
     function updateNotifyBadge(enabled) {
       if (enabled) {
-        els.notifyStatusDot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-        els.notifyBtnText.textContent = '企微推送: 开';
+        els.notifyStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        els.notifyBtnText.textContent = '微信推送: 开';
       } else {
         els.notifyStatusDot.className = 'w-2 h-2 rounded-full bg-slate-400';
-        els.notifyBtnText.textContent = '企微推送: 关';
+        els.notifyBtnText.textContent = '微信推送: 关';
       }
     }
 
@@ -1826,9 +1872,24 @@
     });
 
     els.testNotifyBtn.addEventListener('click', async () => {
-      const webhook = els.notifyWebhookInput.value.trim();
-      if (!webhook) {
-        alert('请先填入企业微信群机器人 Webhook 地址！');
+      const ch = els.notifyChannelSelect.value;
+      const payload = {
+        channel: ch,
+        pushplus_token: els.notifyPushplusToken.value.trim(),
+        serverchan_key: els.notifyServerchanKey.value.trim(),
+        wecom_webhook: els.notifyWebhookInput.value.trim(),
+      };
+
+      if (ch === 'pushplus' && !payload.pushplus_token) {
+        alert('请先填入 PushPlus Token！\n（打开 www.pushplus.plus 微信扫码即可免费获取）');
+        return;
+      }
+      if (ch === 'serverchan' && !payload.serverchan_key) {
+        alert('请先填入 Server酱 SendKey！');
+        return;
+      }
+      if (ch === 'wecom' && !payload.wecom_webhook) {
+        alert('请先填入企业微信 Webhook 地址！');
         return;
       }
 
@@ -1839,11 +1900,11 @@
         const res = await fetch('/api/notify/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wecom_webhook: webhook })
+          body: JSON.stringify(payload)
         });
         const resData = await res.json();
         if (res.ok) {
-          showToast('企微测试消息发送成功', '请在企业微信群聊中查看接收到的卡片！', 'success');
+          showToast('微信测试消息发送成功', '请查看您的手机微信是否已收到消息卡片！', 'success');
         } else {
           alert('测试发送失败: ' + (resData.error || '未知错误'));
         }
@@ -1859,6 +1920,9 @@
     els.saveNotifyBtn.addEventListener('click', async () => {
       const payload = {
         enabled: els.notifyEnableToggle.checked,
+        channel: els.notifyChannelSelect.value,
+        pushplus_token: els.notifyPushplusToken.value.trim(),
+        serverchan_key: els.notifyServerchanKey.value.trim(),
         wecom_webhook: els.notifyWebhookInput.value.trim(),
         min_drop_pct: parseFloat(els.notifyMinDropPct.value) || 10.0,
         min_drop_abs: parseFloat(els.notifyMinDropAbs.value) || 10.0,
@@ -1878,8 +1942,8 @@
         els.notifyModal.classList.remove('flex');
 
         showToast(
-          payload.enabled ? '企微推送已开启' : '企微推送已关闭',
-          payload.enabled ? '后台巡检发现降价捡漏商品时将自动推送到企业微信群' : '已停止企业微信消息推送',
+          payload.enabled ? '微信推送已开启' : '微信推送已关闭',
+          payload.enabled ? '后台巡检发现降价捡漏商品时将自动推送到您的手机微信' : '已停止消息推送',
           payload.enabled ? 'success' : 'info'
         );
       } catch (err) {
