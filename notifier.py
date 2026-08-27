@@ -15,6 +15,7 @@ import os
 import sys
 import time
 import csv
+import re
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -34,6 +35,7 @@ CURRENT_CSV_PATH = os.path.join(BASE_DIR, "3c_products.csv")
 DEFAULT_CONFIG = {
     "enabled": False,
     "channel": "qq_email",  # "qq_email" | "wxpusher" | "bark" | "serverchan" | "wecom"
+    "notify_below_deal_only": False,  # 是否仅推送低于上次成交价的商品
     # QQ 邮箱配置 (微信直接弹窗提醒)
     "qq_email": "",
     "qq_smtp_code": "",
@@ -126,13 +128,27 @@ def get_current_history_alerts():
     return []
 
 
+def parse_deal_price_float(deal_val):
+    """从成交价格字符串中解析出浮点数。"""
+    if not deal_val:
+        return None
+    s = str(deal_val).replace("¥", "").replace("￥", "").strip()
+    match = re.search(r"[-+]?(?:\d*\.\d+|\d+)", s)
+    if match:
+        try:
+            return float(match.group(0))
+        except ValueError:
+            return None
+    return None
+
+
 # ==================== 无图片·轻量化·高密度全量邮件生成器 ====================
 def build_clean_email_html(alerts, title, subtitle=None):
     """
     生成无图片的轻量化 HTML 邮件：
     1. 不含任何沉重图片，加载极速，手机端绝不卡顿或排版错乱；
     2. 支持一次性展示多达 30~50 件降价商品；
-    3. 每件商品包含【名称、底价、原高位、降幅、最近市集成交价、直接点击抢购链接】。
+    3. 每件商品包含【名称、底价、原高位、降幅、最近市集成交价与倒挂标识、直接点击抢购链接】。
     """
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     sub = subtitle or f"巡检时间：{now_str} · 共发现 {len(alerts)} 件降价好物"
@@ -143,13 +159,20 @@ def build_clean_email_html(alerts, title, subtitle=None):
         raw_url = a.get("url") or f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={cid}"
         bili_url = ensure_https_url(raw_url, cid)
         title_text = a.get("title", "未命名商品")
-        cur_p = a.get("cur_price", "0.00")
+        cur_p = float(a.get("cur_price", 0.0))
         high_p = a.get("high_price", "0.00")
         drop_pct = a.get("drop_pct", "0")
         drop_abs = a.get("drop_abs", "0.00")
         deal_p = a.get("latest_deal_price", "")
+        deal_num = parse_deal_price_float(deal_p)
 
-        deal_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-radius:4px; font-weight:600; margin-left:4px;">市集成交: {deal_p}</span>' if deal_p else ''
+        deal_badge = ""
+        if deal_num is not None:
+            if cur_p < deal_num:
+                diff = round(deal_num - cur_p, 2)
+                deal_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#dcfce7; color:#15803d; border-radius:4px; font-weight:bold; margin-left:4px;">🔥 低于上次成交 ¥{deal_p} (省¥{diff})</span>'
+            else:
+                deal_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-radius:4px; font-weight:600; margin-left:4px;">市集成交: {deal_p}</span>'
 
         items_html.append(f"""
         <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
@@ -158,7 +181,7 @@ def build_clean_email_html(alerts, title, subtitle=None):
                 <a href="{bili_url}" target="_blank" style="color:#0f172a; text-decoration:none;">{title_text}</a>
             </div>
             <div style="margin:8px 0 6px 0; font-size:13px; color:#475569; display:flex; align-items:baseline; flex-wrap:wrap; gap:6px;">
-                <span style="color:#ef4444; font-size:16px; font-weight:800;">¥{cur_p}</span>
+                <span style="color:#ef4444; font-size:16px; font-weight:800;">¥{cur_p:.2f}</span>
                 <span style="color:#94a3b8; font-size:11px; text-decoration:line-through;">原高位: ¥{high_p}</span>
                 <span style="display:inline-block; padding:1px 6px; font-size:11px; background:#fee2e2; color:#b91c1c; border-radius:4px; font-weight:bold;">🔻降 {drop_pct}% (-¥{drop_abs})</span>
                 {deal_badge}
@@ -450,14 +473,24 @@ def send_test_message(config=None):
             }
         ]
 
+    only_below_deal = bool(config.get("notify_below_deal_only", False))
+    if only_below_deal:
+        below_only_list = [
+            a for a in current_alerts
+            if parse_deal_price_float(a.get("latest_deal_price")) and float(a.get("cur_price", 0)) < parse_deal_price_float(a.get("latest_deal_price"))
+        ]
+        if below_only_list:
+            current_alerts = below_only_list
+
     title = f"🔔【B站转售监控 · 微信推送测试 (共 {len(current_alerts)} 件商品)】"
     md = format_alerts_markdown(current_alerts)
-    html = build_clean_email_html(current_alerts, f"🔔 微信消息推送测试 (当前共 {len(current_alerts)} 件降价好物)", f"测试时间：{now_str} · 点击任意链接即可手机打开 B站 抢购")
+    sub_title = "已开启「仅推送低于上次成交价」" if only_below_deal else f"当前共 {len(current_alerts)} 件降价好物"
+    html = build_clean_email_html(current_alerts, f"🔔 微信消息推送测试 ({sub_title})", f"测试时间：{now_str} · 点击任意链接即可手机打开 B站 抢购")
     return send_unified_message(channel, title, md, config, html_content=html)
 
 
 def process_and_send_alerts(alerts, total_items_count=None, force=False):
-    """检查新出现的捡漏商品并执行全量轻量化推送（带去重机制与B站直达链接）。"""
+    """检查新出现的捡漏商品并执行全量轻量化推送（带去重机制、低于上次成交价过滤与B站直达链接）。"""
     cfg = load_notify_config()
     if not cfg.get("enabled"):
         return False, "推送功能未开启"
@@ -465,17 +498,29 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
     channel = cfg.get("channel", "qq_email")
     min_drop_pct = float(cfg.get("min_drop_pct", 10.0))
     min_drop_abs = float(cfg.get("min_drop_abs", 10.0))
+    notify_below_deal_only = bool(cfg.get("notify_below_deal_only", False))
 
-    # 1. 过滤符合用户自定义阈值的商品
+    # 1. 过滤符合用户自定义规则的商品
     eligible = []
     for a in alerts:
+        cur_p = float(a.get("cur_price", 0))
+        deal_num = parse_deal_price_float(a.get("latest_deal_price"))
+        is_below_deal = (deal_num is not None and cur_p < deal_num)
+
         drop_pct = float(a.get("drop_pct", 0))
         drop_abs = float(a.get("drop_abs", 0))
-        if drop_pct >= min_drop_pct or drop_abs >= min_drop_abs:
-            eligible.append(a)
+
+        if notify_below_deal_only:
+            # 严格模式：只推送当前在售底价低于最近一次市集成交价的商品
+            if is_below_deal:
+                eligible.append(a)
+        else:
+            # 常规模式：降幅/降额达标 或 低于市集成交价
+            if drop_pct >= min_drop_pct or drop_abs >= min_drop_abs or is_below_deal:
+                eligible.append(a)
 
     if not eligible:
-        return True, "无达到阈值的捡漏商品"
+        return True, "无达到设定规则的捡漏商品"
 
     # 2. 去重过滤
     pushed_cache = load_pushed_cache()
