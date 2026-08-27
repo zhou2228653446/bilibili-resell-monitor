@@ -3,7 +3,7 @@
 """
 B站转售监控 - 消息推送模块 (Notifier)
 支持 100% 永久免费的手机微信即时提醒与移动端一键直达抢购：
-1. 💌 QQ邮箱 -> 微信实时弹窗提醒 (100% 腾讯官方、永久免费、手机直达B站)
+1. 💌 QQ邮箱 -> 微信实时弹窗提醒 (100% 腾讯官方、无图轻量化、多商品全量直达链接)
 2. 📱 WxPusher 微信消息推送平台 (完全免费)
 3. 🍎 iOS Bark (iPhone 原生系统横幅推送，完全免费)
 4. 🚀 Server酱 Turbo (经典微信推送)
@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+import csv
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -27,6 +28,8 @@ import urllib.error
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTIFY_CONFIG_PATH = os.path.join(BASE_DIR, "notify_config.json")
 PUSHED_CACHE_PATH = os.path.join(BASE_DIR, "pushed_alerts.json")
+HISTORY_CSV_PATH = os.path.join(BASE_DIR, "3c_products_history.csv")
+CURRENT_CSV_PATH = os.path.join(BASE_DIR, "3c_products.csv")
 
 DEFAULT_CONFIG = {
     "enabled": False,
@@ -96,27 +99,49 @@ def save_pushed_cache(cache):
         pass
 
 
-def ensure_https_url(url):
-    """确保 URL 带有 https: 前缀。"""
-    if not url:
-        return ""
+def ensure_https_url(url, cluster_id=None):
+    """确保 URL 带有 https: 前缀，若无则使用标准 B 站转售链接。"""
+    if not url and cluster_id:
+        return f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={cluster_id}"
     url = str(url).strip()
     if url.startswith("//"):
         return f"https:{url}"
+    if not url.startswith("http"):
+        if cluster_id:
+            return f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={cluster_id}"
     return url
 
 
-# ==================== 手机端富文本邮件 HTML 生成器 ====================
-def build_mobile_email_html(alerts, title, subtitle=None):
-    """生成专为手机微信/移动邮箱优化的自适应 HTML 邮件（带商品图与B站直达抢购按钮）。"""
+def get_current_history_alerts():
+    """从历史数据中提取当前所有降价捡漏商品。"""
+    try:
+        # 尝试通过 web_server 的计算引擎直接获取最新 alerts
+        from web_server import get_processed_data
+        data = get_processed_data()
+        alerts = data.get("alerts", [])
+        if alerts:
+            return alerts
+    except Exception:
+        pass
+    return []
+
+
+# ==================== 无图片·轻量化·高密度全量邮件生成器 ====================
+def build_clean_email_html(alerts, title, subtitle=None):
+    """
+    生成无图片的轻量化 HTML 邮件：
+    1. 不含任何沉重图片，加载极速，手机端绝不卡顿或排版错乱；
+    2. 支持一次性展示多达 30~50 件降价商品；
+    3. 每件商品包含【名称、底价、原高位、降幅、最近市集成交价、直接点击抢购链接】。
+    """
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-    sub = subtitle or f"巡检时间：{now_str} · 发现 {len(alerts)} 件降价好物"
+    sub = subtitle or f"巡检时间：{now_str} · 共发现 {len(alerts)} 件降价好物"
 
     items_html = []
-    for idx, a in enumerate(alerts[:10], 1):
-        raw_url = a.get("url") or f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={a.get('cluster_id')}"
-        bili_url = ensure_https_url(raw_url)
-        img_url = ensure_https_url(a.get("img", ""))
+    for idx, a in enumerate(alerts[:40], 1):
+        cid = a.get("cluster_id")
+        raw_url = a.get("url") or f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={cid}"
+        bili_url = ensure_https_url(raw_url, cid)
         title_text = a.get("title", "未命名商品")
         cur_p = a.get("cur_price", "0.00")
         high_p = a.get("high_price", "0.00")
@@ -124,35 +149,36 @@ def build_mobile_email_html(alerts, title, subtitle=None):
         drop_abs = a.get("drop_abs", "0.00")
         deal_p = a.get("latest_deal_price", "")
 
-        deal_badge = f'<span style="display:inline-block; padding:2px 8px; font-size:11px; background:#eff6ff; color:#2563eb; border-radius:6px; font-weight:600; margin-left:4px;">市集成交: {deal_p}</span>' if deal_p else ''
-
-        img_tag = f'<img src="{img_url}" style="width:72px; height:72px; object-fit:cover; border-radius:10px; border:1px solid #f1f5f9; flex-shrink:0;" alt="cover" />' if img_url else '<div style="width:72px; height:72px; background:#f1f5f9; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:10px;">暂无图片</div>'
+        deal_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-radius:4px; font-weight:600; margin-left:4px;">市集成交: {deal_p}</span>' if deal_p else ''
 
         items_html.append(f"""
-        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 2px 6px rgba(0,0,0,0.03);">
-            <div style="display:flex; gap:12px; align-items:flex-start;">
-                {img_tag}
-                <div style="flex:1; min-width:0;">
-                    <a href="{bili_url}" target="_blank" style="text-decoration:none; color:#0f172a; font-weight:bold; font-size:14px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
-                        {title_text}
-                    </a>
-                    <div style="margin-top:6px; display:flex; align-items:baseline; flex-wrap:wrap; gap:4px;">
-                        <span style="color:#ef4444; font-size:18px; font-weight:800;">¥{cur_p}</span>
-                        <span style="color:#94a3b8; font-size:11px; text-decoration:line-through; margin-left:4px;">原高位: ¥{high_p}</span>
-                        <span style="display:inline-block; padding:2px 6px; font-size:11px; background:#fee2e2; color:#dc2626; border-radius:6px; font-weight:bold; margin-left:4px;">🔻降 {drop_pct}% (-¥{drop_abs})</span>
-                        {deal_badge}
-                    </div>
-                </div>
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
+            <div style="font-size:14px; font-weight:bold; line-height:1.4;">
+                <span style="color:#fb7299; margin-right:4px;">#{idx}</span>
+                <a href="{bili_url}" target="_blank" style="color:#0f172a; text-decoration:none;">{title_text}</a>
             </div>
-            <div style="margin-top:10px; text-align:right;">
-                <a href="{bili_url}" target="_blank" style="display:inline-block; padding:8px 18px; background:linear-gradient(135deg, #fb7299, #f43f5e); color:#ffffff; font-size:12px; font-weight:bold; text-decoration:none; border-radius:8px; box-shadow:0 2px 8px rgba(251,114,153,0.35);">
-                    📱 手机点击一键直达 B站 抢购 ➔
-                </a>
+            <div style="margin:8px 0 6px 0; font-size:13px; color:#475569; display:flex; align-items:baseline; flex-wrap:wrap; gap:6px;">
+                <span style="color:#ef4444; font-size:16px; font-weight:800;">¥{cur_p}</span>
+                <span style="color:#94a3b8; font-size:11px; text-decoration:line-through;">原高位: ¥{high_p}</span>
+                <span style="display:inline-block; padding:1px 6px; font-size:11px; background:#fee2e2; color:#b91c1c; border-radius:4px; font-weight:bold;">🔻降 {drop_pct}% (-¥{drop_abs})</span>
+                {deal_badge}
+            </div>
+            <div style="font-size:11px; word-break:break-all; padding-top:4px; border-top:1px dashed #f1f5f9;">
+                <span style="color:#64748b;">🔗 抢购链接: </span>
+                <a href="{bili_url}" target="_blank" style="color:#2563eb; text-decoration:underline;">{bili_url}</a>
             </div>
         </div>
         """)
 
     all_items_str = "\n".join(items_html)
+
+    extra_note = ""
+    if len(alerts) > 40:
+        extra_note = f"""
+        <div style="padding:10px; text-align:center; color:#64748b; font-size:12px;">
+            *... 以及其他 {len(alerts) - 40} 件降价商品（已按降幅前40件优先展示）*
+        </div>
+        """
 
     return f"""<!DOCTYPE html>
 <html>
@@ -160,22 +186,22 @@ def build_mobile_email_html(alerts, title, subtitle=None):
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0; padding:16px; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-    <div style="max-width:560px; margin:0 auto;">
+<body style="margin:0; padding:12px; background-color:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+    <div style="max-width:600px; margin:0 auto;">
         <!-- Header -->
-        <div style="background:linear-gradient(135deg, #fb7299, #e11d48); padding:20px; border-radius:18px; color:#ffffff; margin-bottom:14px; box-shadow:0 6px 16px rgba(251,114,153,0.25);">
-            <div style="font-size:12px; font-weight:600; opacity:0.9; text-transform:uppercase; letter-spacing:0.5px;">B站会员购 · 转售行情监控</div>
-            <h1 style="margin:4px 0 0 0; font-size:20px; font-weight:bold;">{title}</h1>
-            <div style="margin-top:6px; font-size:12px; opacity:0.92;">⏰ {sub}</div>
+        <div style="background:linear-gradient(135deg, #fb7299, #e11d48); padding:16px 20px; border-radius:14px; color:#ffffff; margin-bottom:12px;">
+            <h1 style="margin:0; font-size:18px; font-weight:bold;">{title}</h1>
+            <div style="margin-top:4px; font-size:12px; opacity:0.95;">⏰ {sub}</div>
         </div>
 
-        <!-- Items -->
+        <!-- Items List -->
         {all_items_str}
+        {extra_note}
 
         <!-- Footer -->
-        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:14px; text-align:center; color:#64748b; font-size:12px; line-height:1.6; margin-top:14px;">
-            <p style="margin:0; font-weight:600; color:#334155;">💡 手机端使用提示：</p>
-            <p style="margin:4px 0 0 0;">在手机上点击任意商品卡片的<b>「直达抢购」</b>粉色按钮，即可直接在手机浏览器或 B站 App 中打开商品购买，无需在电脑旁！</p>
+        <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; text-align:center; color:#64748b; font-size:12px; line-height:1.5; margin-top:8px;">
+            <p style="margin:0; color:#334155; font-weight:bold;">💡 手机端操作提示：</p>
+            <p style="margin:2px 0 0 0;">点击上方任意商品标题或蓝色的「抢购链接」，即可直接在手机上打开 B 站完成购买！</p>
         </div>
     </div>
 </body>
@@ -197,16 +223,11 @@ def send_qq_email(sender_email, auth_code, receiver_email, title, content_markdo
     if not auth:
         return False, "请填入 QQ 邮箱 SMTP 授权码（登录 mail.qq.com -> 设置 -> 账户开启生成）"
 
-    # 如果未提供专门的 HTML，则生成默认的移动端排版
     if not html_content:
         html_content = f"""
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden;">
-            <div style="background: linear-gradient(135deg, #fb7299, #f43f5e); padding: 20px; color: #ffffff;">
-                <h2 style="margin: 0; font-size: 18px; font-weight: bold;">{title}</h2>
-            </div>
-            <div style="padding: 20px; color: #334155; line-height: 1.6; font-size: 14px;">
-                <pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: #f8fafc; padding: 14px; border-radius: 10px; color: #1e293b;">{content_markdown}</pre>
-            </div>
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 16px;">
+            <h2 style="margin: 0 0 12px 0; font-size: 16px; color: #fb7299;">{title}</h2>
+            <pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: #f8fafc; padding: 12px; border-radius: 8px; color: #1e293b; font-size: 13px;">{content_markdown}</pre>
         </div>
         """
 
@@ -221,7 +242,6 @@ def send_qq_email(sender_email, auth_code, receiver_email, title, content_markdo
     msg.attach(part2)
 
     try:
-        # 使用 SSL 协议连接 QQ 邮箱服务器 (端口 465)
         server = smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=12)
         server.login(sender, auth)
         server.sendmail(sender, [receiver], msg.as_string())
@@ -345,46 +365,8 @@ def send_unified_message(channel, title, markdown_text, config, html_content=Non
         return False, f"未知的推送渠道: {channel}"
 
 
-def send_test_message(config=None):
-    """发送测试消息（包含真实的B站移动端直达链接卡片预览）。"""
-    if config is None:
-        config = load_notify_config()
-
-    channel = config.get("channel", "qq_email")
-    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    sample_alerts = [
-        {
-            "cluster_id": "10000000603",
-            "title": "【示例】FEELALL 星空旋律 鼠标垫 凪款 (测试商品)",
-            "cur_price": 9.00,
-            "high_price": 30.00,
-            "drop_abs": 21.00,
-            "drop_pct": 70.0,
-            "latest_deal_price": "¥8.92",
-            "img": "https://i0.hdslb.com/bfs/mall/mall/60/0a/600ae099b24479e0a6d0cbf06689d0c2.png",
-            "url": "https://mall.bilibili.com/neul-next/resell/detail.html?clusterId=10000000603"
-        }
-    ]
-
-    title = "🔔【B站转售监控 · 微信消息推送测试】"
-    md = f"""【B站转售监控 · 微信消息推送测试】
---------------------------------------------
-✅ 状态：已成功连通！
-⏰ 时间：{now_str}
-📱 说明：以后巡检发现降价捡漏时，邮件内会直接附带【商品图片、底价、降价幅度与 B站手机直达抢购链接】，在手机微信中点击即可直接购买，无需打开电脑！
-
-示例商品：
-1. FEELALL 星空旋律 鼠标垫 凪款
-   底价: ¥9.00 (原高位: ¥30.00 | 降 70.0% | 最近成交: ¥8.92)
-   🔗 抢购链接: https://mall.bilibili.com/neul-next/resell/detail.html?clusterId=10000000603
-"""
-    html = build_mobile_email_html(sample_alerts, "🔔 微信推送联调测试成功！", f"测试时间：{now_str} · 手机直接点击下方按钮即可打开B站抢购")
-    return send_unified_message(channel, title, md, config, html_content=html)
-
-
 def format_alerts_markdown(alerts, total_items_count=None):
-    """将捡漏列表格式化为文本/Markdown消息（带B站直达链接）。"""
+    """将捡漏列表格式化为纯文本消息（包含所有商品的标题、底价、降幅与直接链接）。"""
     if not alerts:
         return ""
 
@@ -397,33 +379,85 @@ def format_alerts_markdown(alerts, total_items_count=None):
         lines.append(f"📊 监控在售商品总数：{total_items_count} 件")
     lines.append("--------------------------------------------")
 
-    for idx, a in enumerate(alerts[:8], 1):
+    for idx, a in enumerate(alerts[:30], 1):
+        cid = a.get("cluster_id")
         title = a.get("title", "未命名商品")
         cur_p = a.get("cur_price")
         high_p = a.get("high_price")
         drop_pct = a.get("drop_pct")
         drop_abs = a.get("drop_abs")
-        raw_url = a.get("url") or f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={a.get('cluster_id')}"
-        bili_url = ensure_https_url(raw_url)
+        raw_url = a.get("url") or f"https://mall.bilibili.com/neul-next/resell/detail.html?clusterId={cid}"
+        bili_url = ensure_https_url(raw_url, cid)
         latest_deal = a.get("latest_deal_price", "")
-        deal_str = f" (最近成交: {latest_deal})" if latest_deal else ""
+        deal_str = f" | 最近成交: {latest_deal}" if latest_deal else ""
 
         lines.append(f"{idx}. {title}")
-        lines.append(f"   🔻 降幅：降 {drop_pct}% (-¥{drop_abs})")
-        lines.append(f"   💰 底价：¥{cur_p} (原高位: ¥{high_p}{deal_str})")
-        lines.append(f"   🔗 B站直达抢购：{bili_url}")
+        lines.append(f"   💰 底价: ¥{cur_p} (原高位: ¥{high_p}{deal_str})")
+        lines.append(f"   🔻 降幅: 降 {drop_pct}% (-¥{drop_abs})")
+        lines.append(f"   🔗 抢购直达: {bili_url}")
         lines.append("")
 
-    if len(alerts) > 8:
-        lines.append(f"... 及其他 {len(alerts) - 8} 件降价商品。")
+    if len(alerts) > 30:
+        lines.append(f"... 以及其他 {len(alerts) - 30} 件降价商品。")
 
     lines.append("--------------------------------------------")
-    lines.append("💡 点击上方任意商品直达链接即可在手机直接打开 B站 购买！")
+    lines.append("💡 在手机上点击上方链接即可直接打开 B 站购买！")
     return "\n".join(lines)
 
 
+def send_test_message(config=None):
+    """发送测试消息（自动拉取当前数据库中所有真实的降价捡漏商品，展示完整列表与B站抢购链接）。"""
+    if config is None:
+        config = load_notify_config()
+
+    channel = config.get("channel", "qq_email")
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 获取当前真实所有的捡漏商品列表
+    current_alerts = get_current_history_alerts()
+    if not current_alerts:
+        # 若历史记录不足两轮，提供 3 条真实格式的示例商品
+        current_alerts = [
+            {
+                "cluster_id": "10000000603",
+                "title": "FEELALL 星空旋律 鼠标垫 凪款",
+                "cur_price": 9.00,
+                "high_price": 30.00,
+                "drop_abs": 21.00,
+                "drop_pct": 70.0,
+                "latest_deal_price": "¥8.92",
+                "url": "https://mall.bilibili.com/neul-next/resell/detail.html?clusterId=10000000603"
+            },
+            {
+                "cluster_id": "10000000604",
+                "title": "B站会员购 3C数码周边 / 降价好物示例 A",
+                "cur_price": 35.00,
+                "high_price": 70.00,
+                "drop_abs": 35.00,
+                "drop_pct": 50.0,
+                "latest_deal_price": "¥36.00",
+                "url": "https://mall.bilibili.com/neul-next/resell/detail.html?clusterId=10000000604"
+            },
+            {
+                "cluster_id": "10000000605",
+                "title": "漫展联名 机械键盘键帽定制款 示例 B",
+                "cur_price": 49.00,
+                "high_price": 89.00,
+                "drop_abs": 40.00,
+                "drop_pct": 44.9,
+                "latest_deal_price": "¥52.00",
+                "url": "https://mall.bilibili.com/neul-next/resell/detail.html?clusterId=10000000605"
+            }
+        ]
+
+    title = f"🔔【B站转售监控 · 微信推送测试 (共 {len(current_alerts)} 件商品)】"
+    md = format_alerts_markdown(current_alerts)
+    html = build_clean_email_html(current_alerts, f"🔔 微信消息推送测试 (当前共 {len(current_alerts)} 件降价好物)", f"测试时间：{now_str} · 点击任意链接即可手机打开 B站 抢购")
+    return send_unified_message(channel, title, md, config, html_content=html)
+
+
 def process_and_send_alerts(alerts, total_items_count=None, force=False):
-    """检查新出现的捡漏商品并执行移动端优化推送（带去重机制与B站直达链接）。"""
+    """检查新出现的捡漏商品并执行全量轻量化推送（带去重机制与B站直达链接）。"""
     cfg = load_notify_config()
     if not cfg.get("enabled"):
         return False, "推送功能未开启"
@@ -459,10 +493,10 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
     if not new_alerts_to_push:
         return True, "所有捡漏商品已在此前推送过，跳过重复发送"
 
-    # 3. 构造移动端富文本消息并发送
+    # 3. 构造无图片、高密度轻量化全量消息并发送
     title = f"⚡【B站转售 · 发现 {len(new_alerts_to_push)} 件新降价捡漏！】"
     md_content = format_alerts_markdown(new_alerts_to_push, total_items_count)
-    html_content = build_mobile_email_html(new_alerts_to_push, title)
+    html_content = build_clean_email_html(new_alerts_to_push, title)
 
     ok, msg = send_unified_message(channel, title, md_content, cfg, html_content=html_content)
     if ok:
