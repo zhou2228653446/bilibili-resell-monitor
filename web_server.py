@@ -49,6 +49,12 @@ try:
 except Exception:
     get_cluster_info = None
 
+# 引入通讯软件推送模块
+try:
+    import notifier
+except Exception:
+    notifier = None
+
 # 市集成交数据持久化缓存管理
 deals_cache_lock = threading.Lock()
 deals_cache = {}
@@ -374,6 +380,16 @@ def run_crawl_thread(category="898", sort="hot", pages=None):
         with crawl_lock:
             crawl_state["exit_code"] = return_code
             crawl_state["log_lines"].append(f"[System] 抓取完成，退出码: {return_code}")
+
+        # 抓取成功后自动触发企业微信捡漏消息推送
+        if return_code == 0 and notifier:
+            try:
+                latest_data = get_latest_data()
+                alerts = latest_data.get("alerts", [])
+                total = len(latest_data.get("products", []))
+                notifier.process_and_send_alerts(alerts, total_items_count=total)
+            except Exception as notify_err:
+                print(f"[Warn] 自动推送捡漏消息异常: {notify_err}", file=sys.stderr)
     except Exception as e:
         with crawl_lock:
             crawl_state["exit_code"] = -1
@@ -408,6 +424,8 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_crawl_status()
         elif path == "/api/schedule":
             self.handle_api_get_schedule()
+        elif path == "/api/notify/config":
+            self.handle_api_get_notify_config()
         elif path == "/api/img":
             qs = urllib.parse.parse_qs(parsed.query)
             img_url = qs.get("url", [""])[0]
@@ -436,6 +454,10 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_set_schedule()
         elif path == "/api/batch_deals":
             self.handle_api_batch_deals()
+        elif path == "/api/notify/config":
+            self.handle_api_set_notify_config()
+        elif path == "/api/notify/test":
+            self.handle_api_notify_test()
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -577,6 +599,61 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 save_deals_cache()
 
         self.send_json(200, result)
+
+    def handle_api_get_notify_config(self):
+        """获取当前企业微信推送配置。"""
+        if not notifier:
+            self.send_json(500, {"error": "notifier 模块未就绪"})
+            return
+        cfg = notifier.load_notify_config()
+        self.send_json(200, cfg)
+
+    def handle_api_set_notify_config(self):
+        """保存企业微信推送配置。"""
+        if not notifier:
+            self.send_json(500, {"error": "notifier 模块未就绪"})
+            return
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        try:
+            params = json.loads(body)
+        except Exception:
+            params = {}
+
+        cfg = notifier.load_notify_config()
+        cfg.update(params)
+        ok = notifier.save_notify_config(cfg)
+        if ok:
+            self.send_json(200, {"success": True, "config": cfg})
+        else:
+            self.send_json(500, {"error": "保存推送配置失败"})
+
+    def handle_api_notify_test(self):
+        """发送企业微信测试推送。"""
+        if not notifier:
+            self.send_json(500, {"error": "notifier 模块未就绪"})
+            return
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        try:
+            params = json.loads(body)
+            webhook_url = params.get("wecom_webhook", "").strip()
+        except Exception:
+            webhook_url = ""
+
+        if not webhook_url:
+            cfg = notifier.load_notify_config()
+            webhook_url = cfg.get("wecom_webhook", "").strip()
+
+        if not webhook_url:
+            self.send_json(400, {"error": "请先填入企业微信机器人 Webhook 地址"})
+            return
+
+        ok, msg = notifier.send_test_message(webhook_url)
+        if ok:
+            self.send_json(200, {"success": True, "message": "测试消息发送成功，请在企业微信群中查看！"})
+        else:
+            self.send_json(400, {"error": msg})
 
     def handle_api_img_proxy(self, img_url):
         """代理加载 B站 图片，避免客户端因 Referer 策略加载失败。"""

@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "channel": "wecom",
+  "wecom_webhook": "",
+  "min_drop_pct": 10.0,
+  "min_drop_abs": 10.0,
+  "notify_on_new_drop": true,
+  "notify_summary": false
+}
