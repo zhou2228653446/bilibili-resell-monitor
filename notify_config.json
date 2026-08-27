@@ -1,9 +1,9 @@
 {
-  "enabled": false,
+  "enabled": true,
   "channel": "wecom",
-  "wecom_webhook": "",
-  "min_drop_pct": 10.0,
-  "min_drop_abs": 10.0,
+  "wecom_webhook": "https://work.weixin.qq.com/wework_admin/common/openBotProfile/243ccc3b598569fc6ecaf2ab744537b744",
+  "min_drop_pct": 10,
+  "min_drop_abs": 10,
   "notify_on_new_drop": true,
   "notify_summary": false
 }

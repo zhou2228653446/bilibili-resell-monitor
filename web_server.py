@@ -629,7 +629,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "保存推送配置失败"})
 
     def handle_api_notify_test(self):
-        """发送企业微信测试推送。"""
+        """发送微信测试推送。"""
         if not notifier:
             self.send_json(500, {"error": "notifier 模块未就绪"})
             return
@@ -637,21 +637,15 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
         try:
             params = json.loads(body)
-            webhook_url = params.get("wecom_webhook", "").strip()
         except Exception:
-            webhook_url = ""
+            params = {}
 
-        if not webhook_url:
-            cfg = notifier.load_notify_config()
-            webhook_url = cfg.get("wecom_webhook", "").strip()
+        cfg = notifier.load_notify_config()
+        cfg.update(params)
 
-        if not webhook_url:
-            self.send_json(400, {"error": "请先填入企业微信机器人 Webhook 地址"})
-            return
-
-        ok, msg = notifier.send_test_message(webhook_url)
+        ok, msg = notifier.send_test_message(cfg)
         if ok:
-            self.send_json(200, {"success": True, "message": "测试消息发送成功，请在企业微信群中查看！"})
+            self.send_json(200, {"success": True, "message": "微信测试消息发送成功，请在微信中查看！"})
         else:
             self.send_json(400, {"error": msg})
 
