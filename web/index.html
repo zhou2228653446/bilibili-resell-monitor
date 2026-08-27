@@ -262,6 +262,7 @@
           <!-- 排序规则 -->
           <select id="sortSelect" class="px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-pink-500/40">
             <option value="default">默认排序</option>
+            <option value="below_deal_first">低于上次成交价优先 🔥</option>
             <option value="drop_desc">降价幅度优先 🔻</option>
             <option value="price_asc">价格由低到高 ↑</option>
             <option value="price_desc">价格由高到低 ↓</option>
@@ -272,6 +273,15 @@
           <label class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-xl bg-slate-50 dark:bg-[#12141c] border border-slate-200 dark:border-slate-700/80 cursor-pointer select-none">
             <input type="checkbox" id="onlyAlertsCheckbox" class="rounded text-pink-500 focus:ring-pink-400">
             <span>仅看降价捡漏</span>
+          </label>
+
+          <!-- 低于上次成交价 Checkbox -->
+          <label class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/60 cursor-pointer select-none hover:border-emerald-500 transition">
+            <input type="checkbox" id="belowDealPriceCheckbox" class="rounded text-emerald-500 focus:ring-emerald-400">
+            <span class="text-emerald-700 dark:text-emerald-300 font-bold flex items-center space-x-1">
+              <i data-lucide="trending-down" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <span>低于上次购买/成交价</span>
+            </span>
           </label>
 
           <!-- 视图切换 (Grid vs Table) -->
@@ -724,6 +734,21 @@
             <input type="number" id="notifyMinDropAbs" value="10" min="1" max="1000" class="w-full text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
           </div>
         </div>
+
+        <!-- 低于上次成交价专用推送过滤开关 -->
+        <div class="flex items-center justify-between p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40">
+          <div>
+            <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+              <i data-lucide="trending-down" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <span>仅推送「低于上次购买/成交价」</span>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">开启后仅在当前在售价低于最近市集成交价时触发推送</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="notifyBelowDealOnlyToggle" class="sr-only peer">
+            <div class="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-500"></div>
+          </label>
+        </div>
       </div>
 
       <div class="flex items-center space-x-2 pt-1">
@@ -774,6 +799,7 @@
       categoryFilter: document.getElementById('categoryFilter'),
       sortSelect: document.getElementById('sortSelect'),
       onlyAlertsCheckbox: document.getElementById('onlyAlertsCheckbox'),
+      belowDealPriceCheckbox: document.getElementById('belowDealPriceCheckbox'),
       minPriceInput: document.getElementById('minPriceInput'),
       maxPriceInput: document.getElementById('maxPriceInput'),
       applyPriceBtn: document.getElementById('applyPriceBtn'),
@@ -845,6 +871,7 @@
       notifyWebhookInput: document.getElementById('notifyWebhookInput'),
       notifyMinDropPct: document.getElementById('notifyMinDropPct'),
       notifyMinDropAbs: document.getElementById('notifyMinDropAbs'),
+      notifyBelowDealOnlyToggle: document.getElementById('notifyBelowDealOnlyToggle'),
       testNotifyBtn: document.getElementById('testNotifyBtn'),
       saveNotifyBtn: document.getElementById('saveNotifyBtn'),
       toastContainer: document.getElementById('toastContainer'),
@@ -1019,12 +1046,29 @@
       }
     }
 
+    // 辅助：解析成交价浮点数
+    function parseDealPriceNum(val) {
+      if (!val) return null;
+      const s = String(val).replace(/[^0-9.]/g, '');
+      const num = parseFloat(s);
+      return isNaN(num) ? null : num;
+    }
+
+    // 辅助：判断是否低于上次成交价
+    function isBelowDealPrice(product) {
+      if (!product) return false;
+      const p = product.price_num;
+      const dp = parseDealPriceNum(product.latest_deal_price);
+      return p !== null && dp !== null && p < dp;
+    }
+
     // 3. 筛选与排序逻辑
     function applyFilters() {
       const q = (els.searchInput.value || '').trim().toLowerCase();
       const cat = els.categoryFilter.value;
       const sort = els.sortSelect.value;
       const onlyAlerts = els.onlyAlertsCheckbox.checked;
+      const onlyBelowDeal = els.belowDealPriceCheckbox ? els.belowDealPriceCheckbox.checked : false;
       const minP = parseFloat(els.minPriceInput.value) || null;
       const maxP = parseFloat(els.maxPriceInput.value) || null;
 
@@ -1044,6 +1088,11 @@
           return false;
         }
 
+        // 仅看低于上次成交价
+        if (onlyBelowDeal && !isBelowDealPrice(p)) {
+          return false;
+        }
+
         // 价格区间过滤
         const price = p.price_num;
         if (minP !== null && (price === null || price < minP)) return false;
@@ -1059,7 +1108,14 @@
         const alertA = alertMap.get(a.cluster_id);
         const alertB = alertMap.get(b.cluster_id);
 
-        if (sort === 'drop_desc') {
+        if (sort === 'below_deal_first') {
+          const isA = isBelowDealPrice(a);
+          const isB = isBelowDealPrice(b);
+          if (isA !== isB) return isB ? 1 : -1;
+          const diffA = isA ? (parseDealPriceNum(a.latest_deal_price) - a.price_num) : 0;
+          const diffB = isB ? (parseDealPriceNum(b.latest_deal_price) - b.price_num) : 0;
+          return diffB - diffA;
+        } else if (sort === 'drop_desc') {
           const dropA = alertA ? alertA.drop_pct : -999;
           const dropB = alertB ? alertB.drop_pct : -999;
           return dropB - dropA;
@@ -1658,6 +1714,7 @@
     els.categoryFilter.addEventListener('change', applyFilters);
     els.sortSelect.addEventListener('change', applyFilters);
     els.onlyAlertsCheckbox.addEventListener('change', applyFilters);
+    if (els.belowDealPriceCheckbox) els.belowDealPriceCheckbox.addEventListener('change', applyFilters);
     els.applyPriceBtn.addEventListener('click', applyFilters);
 
     els.viewGridBtn.addEventListener('click', () => {
@@ -1892,6 +1949,7 @@
         if (els.notifyWebhookInput) els.notifyWebhookInput.value = cfg.wecom_webhook || '';
         if (els.notifyMinDropPct) els.notifyMinDropPct.value = cfg.min_drop_pct || 10;
         if (els.notifyMinDropAbs) els.notifyMinDropAbs.value = cfg.min_drop_abs || 10;
+        if (els.notifyBelowDealOnlyToggle) els.notifyBelowDealOnlyToggle.checked = Boolean(cfg.notify_below_deal_only);
 
         updateNotifyChannelUI();
         updateNotifyBadge(cfg.enabled);
@@ -1926,6 +1984,7 @@
       const ch = els.notifyChannelSelect.value;
       const payload = {
         channel: ch,
+        notify_below_deal_only: Boolean(els.notifyBelowDealOnlyToggle && els.notifyBelowDealOnlyToggle.checked),
         qq_email: els.notifyQqEmail ? els.notifyQqEmail.value.trim() : '',
         qq_smtp_code: els.notifyQqSmtpCode ? els.notifyQqSmtpCode.value.trim() : '',
         wxpusher_app_token: els.notifyWxpusherAppToken ? els.notifyWxpusherAppToken.value.trim() : '',
@@ -1976,6 +2035,7 @@
       const payload = {
         enabled: els.notifyEnableToggle.checked,
         channel: els.notifyChannelSelect.value,
+        notify_below_deal_only: Boolean(els.notifyBelowDealOnlyToggle && els.notifyBelowDealOnlyToggle.checked),
         qq_email: els.notifyQqEmail ? els.notifyQqEmail.value.trim() : '',
         qq_smtp_code: els.notifyQqSmtpCode ? els.notifyQqSmtpCode.value.trim() : '',
         wxpusher_app_token: els.notifyWxpusherAppToken ? els.notifyWxpusherAppToken.value.trim() : '',
