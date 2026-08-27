@@ -18,6 +18,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
+from email.utils import formataddr
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -128,8 +129,8 @@ def send_qq_email(sender_email, auth_code, receiver_email, title, content_markdo
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = Header(title, "utf-8")
-    msg["From"] = Header(f"B站捡漏监控 <{sender}>", "utf-8")
-    msg["To"] = Header(receiver, "utf-8")
+    msg["From"] = formataddr(("B站捡漏监控", sender))
+    msg["To"] = formataddr(("微信提醒", receiver))
 
     part1 = MIMEText(content_markdown, "plain", "utf-8")
     part2 = MIMEText(html_body, "html", "utf-8")
