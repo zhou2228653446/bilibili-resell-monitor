@@ -292,16 +292,18 @@ def get_latest_data():
                     })
                     alert_cids.add(iid)
 
-    # 为所有商品计算 discount_rate 与 is_super_discount，若低于原价3折且未加入alerts则自动纳入
+    # 为所有商品计算 discount_rate 与 is_super_discount（排除 FEELALL 等虚高标价商品）
     for p in products:
         iid = p.get("cluster_id")
+        title = (p.get("title") or "").upper()
         cur_p = parse_price(p.get("price"))
         ref_p = parse_price(p.get("reference_price"))
         if cur_p and ref_p and ref_p > 0:
             discount_rate = round(cur_p / ref_p, 4)
             p["discount_rate"] = discount_rate
-            p["is_super_discount"] = (discount_rate <= 0.30)
-            if discount_rate <= 0.30 and iid not in alert_cids:
+            is_feelall = "FEELALL" in title
+            p["is_super_discount"] = (discount_rate <= 0.30 and not is_feelall)
+            if p["is_super_discount"] and iid not in alert_cids:
                 drop_abs = round(ref_p - cur_p, 2)
                 drop_pct = round(drop_abs / ref_p, 4)
                 alerts.append({
