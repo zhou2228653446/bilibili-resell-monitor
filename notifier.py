@@ -518,7 +518,9 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
         is_below_deal = (deal_num is not None and cur_p < deal_num)
 
         ref_p = parse_deal_price_float(a.get("reference_price") or a.get("high_price"))
-        is_super_discount = (ref_p is not None and ref_p > 0 and (cur_p / ref_p) <= 0.30)
+        title_str = str(a.get("title", "")).upper()
+        is_feelall = "FEELALL" in title_str
+        is_super_discount = (ref_p is not None and ref_p > 0 and (cur_p / ref_p) <= 0.30 and not is_feelall)
 
         drop_pct = float(a.get("drop_pct", 0))
         drop_abs = float(a.get("drop_abs", 0))
