@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     "enabled": False,
     "channel": "qq_email",  # "qq_email" | "wxpusher" | "bark" | "serverchan" | "wecom"
     "notify_below_deal_only": False,  # 是否仅推送低于上次成交价的商品
+    "notify_below_three_discount": True,  # 是否包含低于原价3折的新上架好物
     # QQ 邮箱配置 (微信直接弹窗提醒)
     "qq_email": "",
     "qq_smtp_code": "",
@@ -174,6 +175,13 @@ def build_clean_email_html(alerts, title, subtitle=None):
             else:
                 deal_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#eff6ff; color:#1d4ed8; border-radius:4px; font-weight:600; margin-left:4px;">市集成交: {deal_p}</span>'
 
+        super_discount_badge = ""
+        ref_p = parse_deal_price_float(a.get("reference_price") or a.get("high_price"))
+        if ref_p and ref_p > 0:
+            rate = cur_p / ref_p
+            if rate <= 0.30:
+                super_discount_badge = f'<span style="display:inline-block; padding:1px 6px; font-size:11px; background:#fef3c7; color:#b45309; border-radius:4px; font-weight:bold; margin-left:4px;">🏷️ 超低{(rate*10):.1f}折神价</span>'
+
         items_html.append(f"""
         <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; margin-bottom:10px;">
             <div style="font-size:14px; font-weight:bold; line-height:1.4;">
@@ -185,6 +193,7 @@ def build_clean_email_html(alerts, title, subtitle=None):
                 <span style="color:#94a3b8; font-size:11px; text-decoration:line-through;">原高位: ¥{high_p}</span>
                 <span style="display:inline-block; padding:1px 6px; font-size:11px; background:#fee2e2; color:#b91c1c; border-radius:4px; font-weight:bold;">🔻降 {drop_pct}% (-¥{drop_abs})</span>
                 {deal_badge}
+                {super_discount_badge}
             </div>
             <div style="font-size:11px; word-break:break-all; padding-top:4px; border-top:1px dashed #f1f5f9;">
                 <span style="color:#64748b;">🔗 抢购链接: </span>
@@ -499,6 +508,7 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
     min_drop_pct = float(cfg.get("min_drop_pct", 10.0))
     min_drop_abs = float(cfg.get("min_drop_abs", 10.0))
     notify_below_deal_only = bool(cfg.get("notify_below_deal_only", False))
+    notify_below_three_discount = bool(cfg.get("notify_below_three_discount", True))
 
     # 1. 过滤符合用户自定义规则的商品
     eligible = []
@@ -506,6 +516,9 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
         cur_p = float(a.get("cur_price", 0))
         deal_num = parse_deal_price_float(a.get("latest_deal_price"))
         is_below_deal = (deal_num is not None and cur_p < deal_num)
+
+        ref_p = parse_deal_price_float(a.get("reference_price") or a.get("high_price"))
+        is_super_discount = (ref_p is not None and ref_p > 0 and (cur_p / ref_p) <= 0.30)
 
         drop_pct = float(a.get("drop_pct", 0))
         drop_abs = float(a.get("drop_abs", 0))
@@ -515,8 +528,8 @@ def process_and_send_alerts(alerts, total_items_count=None, force=False):
             if is_below_deal:
                 eligible.append(a)
         else:
-            # 常规模式：降幅/降额达标 或 低于市集成交价
-            if drop_pct >= min_drop_pct or drop_abs >= min_drop_abs or is_below_deal:
+            # 常规模式：降幅/降额达标 或 低于市集成交价 或 低于原价3折
+            if drop_pct >= min_drop_pct or drop_abs >= min_drop_abs or is_below_deal or (notify_below_three_discount and is_super_discount):
                 eligible.append(a)
 
     if not eligible:

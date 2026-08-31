@@ -240,8 +240,10 @@ def get_latest_data():
         iid = p.get("cluster_id")
         p["delta"] = product_delta_map.get(iid, 0)
 
-    # 5. 计算价格异动（降价捡漏告警：对比前 3 次高位价）
+    # 5. 计算价格异动与超低折扣捡漏（包含历史高位降价 + 新上架/在售低于原价3折神价）
     alerts = []
+    alert_cids = set()
+
     if len(history_times) >= 2:
         idx = len(history_times) - 1
         prev_window = history_times[max(0, idx - 3):idx]
@@ -270,17 +272,57 @@ def get_latest_data():
                 drop_pct = round(drop_abs / high_p, 4)
                 if drop_abs >= 10.0 or drop_pct >= 0.10:
                     matching_prod = next((p for p in products if p.get("cluster_id") == iid), None)
+                    ref_p = parse_price(r.get("reference_price")) if r.get("reference_price") else (parse_price(matching_prod.get("reference_price")) if matching_prod else None)
+                    discount_rate = round(cur_p / ref_p, 4) if (ref_p and ref_p > 0) else None
+                    is_super = (discount_rate is not None and discount_rate <= 0.30)
                     alerts.append({
                         "cluster_id": iid,
                         "title": r.get("title", ""),
                         "cur_price": cur_p,
                         "high_price": high_p,
+                        "reference_price": ref_p,
+                        "discount_rate": discount_rate,
+                        "is_super_discount": is_super,
+                        "alert_type": "drop",
                         "drop_abs": drop_abs,
                         "drop_pct": round(drop_pct * 100, 1),
                         "img": matching_prod.get("img", "") if matching_prod else r.get("img", ""),
                         "url": r.get("url", ""),
                         "discount": matching_prod.get("discount", "") if matching_prod else r.get("discount", ""),
                     })
+                    alert_cids.add(iid)
+
+    # 为所有商品计算 discount_rate 与 is_super_discount，若低于原价3折且未加入alerts则自动纳入
+    for p in products:
+        iid = p.get("cluster_id")
+        cur_p = parse_price(p.get("price"))
+        ref_p = parse_price(p.get("reference_price"))
+        if cur_p and ref_p and ref_p > 0:
+            discount_rate = round(cur_p / ref_p, 4)
+            p["discount_rate"] = discount_rate
+            p["is_super_discount"] = (discount_rate <= 0.30)
+            if discount_rate <= 0.30 and iid not in alert_cids:
+                drop_abs = round(ref_p - cur_p, 2)
+                drop_pct = round(drop_abs / ref_p, 4)
+                alerts.append({
+                    "cluster_id": iid,
+                    "title": p.get("title", ""),
+                    "cur_price": cur_p,
+                    "high_price": ref_p,
+                    "reference_price": ref_p,
+                    "discount_rate": discount_rate,
+                    "is_super_discount": True,
+                    "alert_type": "super_discount",
+                    "drop_abs": drop_abs,
+                    "drop_pct": round(drop_pct * 100, 1),
+                    "img": p.get("img", ""),
+                    "url": p.get("url", ""),
+                    "discount": p.get("discount", ""),
+                })
+                alert_cids.add(iid)
+        else:
+            p["discount_rate"] = None
+            p["is_super_discount"] = False
 
     # 6. 从持久化缓存中注入已知的市集最新成交价
     with deals_cache_lock:
