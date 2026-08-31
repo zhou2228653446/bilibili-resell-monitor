@@ -430,6 +430,17 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             qs = urllib.parse.parse_qs(parsed.query)
             img_url = qs.get("url", [""])[0]
             self.handle_api_img_proxy(img_url)
+        elif path == "/favicon.ico":
+            favicon_path = os.path.join(WEB_DIR, "favicon.ico")
+            if os.path.exists(favicon_path):
+                self.send_response(200)
+                self.send_header("Content-Type", "image/x-icon")
+                self.end_headers()
+                with open(favicon_path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(204)
+                self.end_headers()
         elif path in ("/", "/index.html"):
             index_file = os.path.join(WEB_DIR, "index.html")
             if os.path.exists(index_file):
@@ -720,9 +731,10 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(payload)
 
     def log_message(self, format, *args):
-        # 简化静态资源 log 输出
-        if not args[0].startswith("GET /api/crawl/status"):
-            super().log_message(format, *args)
+        # 过滤高频轮询的抓取状态日志
+        if args and isinstance(args[0], str) and "GET /api/crawl/status" in args[0]:
+            return
+        super().log_message(format, *args)
 
 
 def main():
