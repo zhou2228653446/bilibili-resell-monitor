@@ -653,6 +653,22 @@ def main():
     if first_added:
         print_items(first_added, start_no=1)
 
+    # 计算历史平均商品量作为参考基准，指导防早循环策略
+    history_avg_count = 0
+    if args.history and os.path.exists(args.history):
+        try:
+            _rows, _times = read_history(args.history)
+            _cat = cat if cat else "all"
+            _counts = []
+            for _t in _times:
+                _ids = {r["cluster_id"] for r in _rows if r.get("category") == _cat and r["crawl_time"] == _t}
+                if _ids:
+                    _counts.append(len(_ids))
+            if _counts:
+                history_avg_count = sum(_counts) / len(_counts)
+        except Exception:
+            pass
+
     page = 2
     no_new_streak = 0
     fail_streak = 0
@@ -691,14 +707,49 @@ def main():
         else:
             # 本页没有新增唯一商品（整页重复）
             no_new_streak += 1
-            print(f"  (第{page}页无新增唯一商品，连续 {no_new_streak} 页)")
-            if no_new_streak >= 5:
+            # 自适应穿透容忍度：若历史均值在 100 条以上且当前抓取量尚未达到 70%，提高穿透空间至 10 页
+            streak_limit = 10 if (history_avg_count >= 100 and len(ordered) < history_avg_count * 0.7) else 5
+            print(f"  (第{page}页无新增唯一商品，连续 {no_new_streak}/{streak_limit} 页)")
+            if no_new_streak >= streak_limit:
                 print("  (连续多页无新增商品，判定当前排序下商品已抓完，停止翻页)")
                 break
 
         has_more = feed.get("hasMore", False)
         page += 1
         time.sleep(random.uniform(0.8, 1.2))  # 稳健延时，避免触发 B站频控限流
+
+    # 自动补全机制：如果主排序模式下抓取商品显著少于历史均值（例如 < 60%），自动切换至 mostListings / priceFirst 补齐
+    if (args.all or args.pages is None) and history_avg_count >= 100 and len(ordered) < history_avg_count * 0.6:
+        fallback_sorts = ["mostListings", "priceFirst"]
+        fallback_sorts = [s for s in fallback_sorts if s != args.sort]
+
+        for fb_sort in fallback_sorts:
+            if len(ordered) >= history_avg_count * 0.85:
+                break
+            print(f"\n🔄 [防早循环智能补全] 检测到本次抓取量 ({len(ordered)}) 显著偏低 (历史均值 {history_avg_count:.0f})，正在切换至「{fb_sort}」排序执行自动补全...")
+            fb_page = 1
+            fb_no_new = 0
+            while fb_page <= max_pages:
+                try:
+                    feed = get_feed_safe(page_num=fb_page, sort_type=fb_sort, category_id=cat, ip_id=ip)
+                except Exception as e:
+                    print(f"   (补全第{fb_page}页异常，跳过: {e})")
+                    break
+                items = feed.get("items", [])
+                if not items:
+                    break
+                added = add_items(items)
+                if added:
+                    fb_no_new = 0
+                else:
+                    fb_no_new += 1
+                    if fb_no_new >= 6:
+                        break
+                if not feed.get("hasMore", False):
+                    break
+                fb_page += 1
+                time.sleep(random.uniform(0.7, 1.1))
+            print(f"   ✓ 「{fb_sort}」排序补全完成，当前累计唯一商品数已扩充至: {len(ordered)} 条！")
 
     if page > max_pages and (args.all or args.pages is None):
         print(f"  (已达到翻页上限 {max_pages} 页，可能在 cap 内未抓全；可上调源码 MAX_PAGES 重试)")
@@ -741,28 +792,11 @@ def main():
                 write_alert_csv(alert_res["alerts"], args.alert_csv)
                 print(f"已导出价格异动 -> {args.alert_csv}")
 
-        # 抓取完成后，若历史文件已有数据，检查本次是否显著偏少（疑似漏抓）
-        if os.path.exists(args.history):
-            try:
-                _rows, _times = read_history(args.history)
-                _cat = cat if cat else "all"
-                _per = []
-                for _t in _times:
-                    if _t == crawl_time:
-                        continue
-                    _ids = {r["cluster_id"] for r in _rows
-                            if r.get("category") == _cat and r["crawl_time"] == _t}
-                    if _ids:
-                        _per.append(len(_ids))
-                if _per:
-                    _avg = sum(_per) / len(_per)
-                    if total < _avg * 0.5:
-                        print("")
-                        print(f"⚠️ 警告：本次仅抓取 {total} 条，低于历史均值 {_avg:.0f} 的 50%。")
-                        print("   可能撞上 B站转售接口偶发「早循环」窗口导致漏抓，"
-                              "建议用 --pages 强制翻页或换 mostListings/priceFirst 排序后重跑。")
-            except Exception:
-                pass
+        # 抓取完成后，若历史文件已有数据且依然显著偏少，输出提示
+        if history_avg_count >= 50 and total < history_avg_count * 0.5:
+            print("")
+            print(f"⚠️ 警告：本次仅抓取 {total} 条，低于历史均值 {history_avg_count:.0f} 的 50%。")
+            print("   建议在控制台或命令行使用 --pages 强制指定翻页深度，或切换 mostListings/priceFirst 排序后重试。")
 
     print("\n" + "=" * 60)
     print(f"本次共获取唯一商品 {total} 条。")
