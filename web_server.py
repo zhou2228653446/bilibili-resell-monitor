@@ -93,7 +93,7 @@ schedule_state = {
     "enabled": False,
     "interval_minutes": 30,
     "category": "898",
-    "sort": "hot",
+    "sort": "mostListings",
     "last_run": None,
     "next_run": None,
     "_next_run_ts": 0,
@@ -377,7 +377,7 @@ def get_product_history(cluster_id):
     }
 
 
-def run_crawl_thread(category="898", sort="hot", pages=None):
+def run_crawl_thread(category="898", sort="mostListings", pages=None):
     """在独立后台线程中执行爬虫并记录实时输出。"""
     global crawl_state
     cmd = [sys.executable, SCRIPT_PATH, "--csv", "3c_products.csv", "--json", "3c_products.json"]
