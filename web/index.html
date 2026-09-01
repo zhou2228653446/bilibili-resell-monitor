@@ -26,8 +26,13 @@
       }
     }
   </script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Lucide Icons (高可用多 CDN 自动回退) -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+  <script>
+    if (typeof lucide === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/umd/lucide.min.js"><\/script>');
+    }
+  </script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -916,10 +921,21 @@
     }
     initTheme();
 
+    // 安全渲染图标（防御 CDN 异常）
+    function safeCreateIcons() {
+      if (typeof lucide !== 'undefined' && lucide && typeof lucide.createIcons === 'function') {
+        try {
+          lucide.createIcons();
+        } catch (e) {
+          console.warn('Lucide icon render error:', e);
+        }
+      }
+    }
+
     els.themeToggleBtn.addEventListener('click', () => {
       document.documentElement.classList.toggle('dark');
       localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-      lucide.createIcons();
+      safeCreateIcons();
     });
 
     // 格式化金额
@@ -1034,7 +1050,7 @@
       `;
       }).join('');
 
-      lucide.createIcons();
+      safeCreateIcons();
       fetchMissingDeals(alerts.slice(0, 15).map(a => a.cluster_id));
     }
 
@@ -1355,7 +1371,7 @@
       }
 
       renderPagination(total);
-      lucide.createIcons();
+      safeCreateIcons();
 
       // 异步拉取当前页可见商品的最新成交价
       fetchMissingDeals(pageItems.map(p => p.cluster_id));
@@ -1471,7 +1487,7 @@
 
       els.historyModal.classList.remove('hidden');
       els.historyModal.classList.add('flex');
-      lucide.createIcons();
+      safeCreateIcons();
 
       // 并行请求：本地历史 + B站官方市集成交数据
       try {
@@ -1709,7 +1725,7 @@
       els.crawlModal.classList.remove('hidden');
       els.crawlModal.classList.add('flex');
       pollCrawlStatus();
-      lucide.createIcons();
+      safeCreateIcons();
     });
 
     els.closeCrawlModalBtn.addEventListener('click', () => {
@@ -1804,14 +1820,14 @@
     els.viewGridBtn.addEventListener('click', () => {
       currentView = 'grid';
       els.viewGridBtn.className = 'p-1.5 rounded-lg bg-white dark:bg-[#181a24] text-pink-500 shadow-sm transition';
-      els.viewTableBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition';
+      els.viewTableBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:white transition';
       renderCurrentPage();
     });
 
     els.viewTableBtn.addEventListener('click', () => {
       currentView = 'table';
       els.viewTableBtn.className = 'p-1.5 rounded-lg bg-white dark:bg-[#181a24] text-pink-500 shadow-sm transition';
-      els.viewGridBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition';
+      els.viewGridBtn.className = 'p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:white transition';
       renderCurrentPage();
     });
 
@@ -1870,7 +1886,7 @@
       `;
 
       els.toastContainer.appendChild(toast);
-      lucide.createIcons();
+      safeCreateIcons();
 
       setTimeout(() => {
         toast.classList.remove('translate-y-[-10px]', 'opacity-0');
@@ -1936,7 +1952,7 @@
       loadScheduleConfig();
       els.scheduleModal.classList.remove('hidden');
       els.scheduleModal.classList.add('flex');
-      lucide.createIcons();
+      safeCreateIcons();
     });
 
     els.closeScheduleModalBtn.addEventListener('click', () => {
@@ -2057,7 +2073,7 @@
       loadNotifyConfig();
       els.notifyModal.classList.remove('hidden');
       els.notifyModal.classList.add('flex');
-      lucide.createIcons();
+      safeCreateIcons();
     });
 
     els.closeNotifyModalBtn.addEventListener('click', () => {
@@ -2113,7 +2129,7 @@
       } finally {
         els.testNotifyBtn.disabled = false;
         els.testNotifyBtn.innerHTML = '<i data-lucide="send" class="w-3.5 h-3.5 mr-1"></i><span>发送测试消息</span>';
-        lucide.createIcons();
+        safeCreateIcons();
       }
     });
 

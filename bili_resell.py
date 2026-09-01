@@ -171,7 +171,54 @@ def get_feed_safe(page_num=1, sort_type=None, category_id=None, ip_id=None,
 
 def get_cluster_info(cluster_id):
     """获取单个商品的市集详情与真实成交记录（官方成交均价走势与近期交易明细）。"""
+    init_session_cookies()
     url = "https://mall.bilibili.com/mall-search-items/items_detail/cluster_info"
+    s = get_session()
+
+    if s is not None:
+        for attempt in range(1, 4):
+            try:
+                resp = s.post(url, json={"clusterId": str(cluster_id)}, timeout=10)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    if payload.get("code") == 0:
+                        d = payload.get("data", {})
+                        basic = d.get("clusterBasicInfoFloorVO") or {}
+                        price_floor = d.get("clusterPriceFloorVO") or {}
+                        recent_buy = d.get("clusterRecentBuyFloorVO") or {}
+                        attr_floor = d.get("clusterAttrFloorVO") or {}
+                        header_floor = d.get("clusterHeaderFloorVO") or {}
+                        btn_floor = d.get("clusterPurchaseButton") or {}
+
+                        chart_points = recent_buy.get("chartData", {}).get("chartPoints", []) if recent_buy.get("chartData") else []
+                        deals = recent_buy.get("deals", [])
+
+                        latest_deal_price = None
+                        if deals and len(deals) > 0 and deals[0].get("dealPrice"):
+                            latest_deal_price = str(deals[0].get("dealPrice"))
+                        elif chart_points and len(chart_points) > 0:
+                            last_pt = chart_points[-1]
+                            p_val = last_pt.get("avgPrice") or last_pt.get("price")
+                            if p_val:
+                                p_val_str = str(p_val).strip()
+                                latest_deal_price = p_val_str if p_val_str.startswith("¥") else f"¥{p_val_str}"
+
+                        return {
+                            "cluster_id": str(cluster_id),
+                            "title": basic.get("clusterName", ""),
+                            "images": header_floor.get("clusterImgList", []),
+                            "price_tag": price_floor.get("priceTag", {}),
+                            "lowest_price": btn_floor.get("buttonSubText", ""),
+                            "latest_deal_price": latest_deal_price,
+                            "attributes": attr_floor.get("attrList", []),
+                            "chart_points": chart_points,
+                            "deals": deals,
+                        }
+            except Exception:
+                time.sleep(1.0)
+        return None
+
+    # 回退兼容 urllib
     data = json.dumps({"clusterId": str(cluster_id)}).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
     try:
