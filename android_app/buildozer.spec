@@ -16,6 +16,8 @@ android.minapi = 24
 android.ndk = 26b
 android.archs = arm64-v8a
 android.allow_backup = True
+# CI 无 tty，许可证必须自动接受，否则 build-tools（含 aidl）静默安装失败
+android.accept_sdk_license = True
 
 [buildozer]
 log_level = 2
