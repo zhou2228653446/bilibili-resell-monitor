@@ -12,15 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build APK with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
-        with:
-          workdir: android_app
-          buildozer_version: stable
+      # 不用 ArtemSBulgakov/buildozer-action（其 Dockerfile 无法解析
+      # kivy/buildozer 多平台 OCI 镜像，issue #41，已长期无人维护），
+      # 直接用官方镜像 docker run 构建。
+      - name: Build APK (official kivy/buildozer image)
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/android_app":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: biliresellmonitor-apk
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: android_app/bin/*.apk
+          if-no-files-found: error
