@@ -16,8 +16,13 @@ __pycache__/
 # PyInstaller build artifacts
 build/
 dist/
-*.spec
+bilibili_resell_monitor.spec
 *.exe
+
+# buildozer build artifacts (spec file must be tracked!)
+android_app/.buildozer/
+.buildozer-global/
+android_app/bin/
 
 # Local notification credentials (secrets, never commit)
 notify_config.json
