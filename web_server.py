@@ -830,11 +830,26 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
         super().log_message(format, *args)
 
 
+def open_browser_tab(url):
+    """安全弹出默认浏览器打开看板。"""
+    try:
+        opened = webbrowser.open(url)
+        if not opened and sys.platform == "win32":
+            os.system(f'start "" "{url}"')
+    except Exception:
+        if sys.platform == "win32":
+            try:
+                os.system(f'start "" "{url}"')
+            except Exception:
+                pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="B站会员购转售数据看板 Web 服务器")
     parser.add_argument("--port", type=int, default=8000, help="监听端口 (默认: 8000)")
     parser.add_argument("--host", default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
-    parser.add_argument("--open", action="store_true", help="启动后自动在浏览器打开看板")
+    parser.add_argument("--no-open", action="store_true", help="启动后不自动打开浏览器")
+    parser.add_argument("--open", action="store_true", help="兼容历史参数：自动打开浏览器")
     args = parser.parse_args()
 
     os.makedirs(WEB_DIR, exist_ok=True)
@@ -854,8 +869,9 @@ def main():
     # 启动后台自动定时巡检调度线程
     threading.Thread(target=scheduler_worker, daemon=True).start()
 
-    if args.open:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    # 默认自动打开浏览器（双击 exe 或无参数启动时自动弹窗），除非指定 --no-open
+    if not args.no_open:
+        threading.Timer(0.6, lambda: open_browser_tab(url)).start()
 
     try:
         httpd.serve_forever()
