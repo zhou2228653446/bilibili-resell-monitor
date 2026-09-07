@@ -2,7 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Zero Dependency](https://img.shields.io/badge/Dependencies-Standard%20Library%20Only-success.svg)]()
+[![Zero Config](https://img.shields.io/badge/Dependencies-Standard%20Library%20Core%20%2B%20Optional%20requests-yellow.svg)]()
 
 > 基于 Python 标准库打造的 **B站会员购「潮玩转售/市集」实时数据监控系统与可视化大盘**。  
 > 支持**全自动无人值守定时巡检**、**B站官方市集成交均价走势与订单拉取**、**降价捡漏雷达告警**、**在线抓取控制台**以及**无感数据实时刷新**。
@@ -11,7 +11,7 @@
 
 ## ✨ 核心特性
 
-- ⚡ **零第三方依赖 (Zero Dependencies)**：后端完全基于 Python 3 标准库（`http.server`、`urllib`、`threading` 等）实现，克隆即可运行，无需 `pip install` 繁重依赖。
+- 🧩 **核心零依赖，requests 可选加速**：Web 服务端完全基于 Python 3 标准库（`http.server`、`urllib`、`threading` 等）实现；爬虫核心在未安装 `requests` 时自动回退 `urllib`（克隆即可运行），安装 `requests` 后自动启用 `Session` 持久化连接，抗 429 更稳定。
 - 🛡️ **智能防封与抗 429 退避算法 (Anti-Rate-Limiting)**：
   - 自动获取公开游客设备指纹（`buvid3`/`buvid4`），实现无账号物理隔离抓取，0 封号风险；
   - 遇到 B 站 `HTTP 429` 频率限制时，自适应进入指数抖动退避，自动恢复抓取，保证数据 100% 完整不漏抓。
