@@ -35,21 +35,30 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-WEB_DIR = os.path.join(BASE_DIR, "web")
+# 路径配置（兼容脚本直接运行与打包为 exe 运行）
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    _bundled_web = os.path.join(getattr(sys, "_MEIPASS", BASE_DIR), "web")
+    WEB_DIR = _bundled_web if os.path.exists(_bundled_web) else os.path.join(BASE_DIR, "web")
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    WEB_DIR = os.path.join(BASE_DIR, "web")
+
 JSON_PATH = os.path.join(BASE_DIR, "3c_products.json")
 CSV_PATH = os.path.join(BASE_DIR, "3c_products.csv")
 HISTORY_PATH = os.path.join(BASE_DIR, "3c_products_history.csv")
 DEALS_CACHE_PATH = os.path.join(BASE_DIR, "deals_cache.json")
 SCRIPT_PATH = os.path.join(BASE_DIR, "bili_resell.py")
 
-# 引入 bili_resell 模块的市集详情与成交拉取函数
+# 引入 bili_resell 核心抓取与成交查询模块
 try:
-    from bili_resell import get_cluster_info
+    import bili_resell
+    get_cluster_info = getattr(bili_resell, "get_cluster_info", None)
 except Exception:
+    bili_resell = None
     get_cluster_info = None
 
-# 引入通讯软件推送模块
+# 引入消息推送模块
 try:
     import notifier
 except Exception:
@@ -378,54 +387,84 @@ def get_product_history(cluster_id):
 
 
 def run_crawl_thread(category="898", sort="mostListings", pages=None):
-    """在独立后台线程中执行爬虫并记录实时输出。"""
+    """在独立后台线程中执行抓取并记录实时输出。"""
     global crawl_state
-    cmd = [sys.executable, "-u", SCRIPT_PATH, "--csv", "3c_products.csv", "--json", "3c_products.json"]
-    if category and category != "all":
-        cmd.extend(["--category", category])
-    elif category == "all":
-        cmd.extend(["--category", "all"])
-
-    if sort:
-        cmd.extend(["--sort", sort])
-    if pages:
-        cmd.extend(["--pages", str(pages)])
 
     with crawl_lock:
         crawl_state["running"] = True
         crawl_state["start_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        crawl_state["log_lines"] = [f"[System] 启动抓取任务: {' '.join(cmd)}"]
+        crawl_state["log_lines"] = [f"[System] 启动抓取任务 (分类: {category}, 排序: {sort}, 页数: {pages or '全量'})..."]
         crawl_state["exit_code"] = None
 
+    def log_fn(line_str):
+        line_str = str(line_str).rstrip()
+        if line_str:
+            with crawl_lock:
+                crawl_state["log_lines"].append(line_str)
+                if len(crawl_state["log_lines"]) > 500:
+                    crawl_state["log_lines"].pop(0)
+            print(line_str)
+
+    return_code = 0
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=BASE_DIR,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-        with crawl_lock:
-            crawl_state["process"] = proc
-
-        for line in iter(proc.stdout.readline, ""):
-            line_str = line.rstrip()
-            if line_str:
+        if bili_resell and hasattr(bili_resell, "crawl_and_export"):
+            # 直接在线程内调用，无外部 Python 进程依赖，完美兼容独立 exe 运行
+            res = bili_resell.crawl_and_export(
+                category=category,
+                sort=sort,
+                pages=pages,
+                output_json=JSON_PATH,
+                output_csv=CSV_PATH,
+                history_csv=HISTORY_PATH,
+                log_callback=log_fn,
+            )
+            if isinstance(res, dict) and res.get("error"):
+                return_code = 1
                 with crawl_lock:
-                    crawl_state["log_lines"].append(line_str)
-                    if len(crawl_state["log_lines"]) > 500:
-                        crawl_state["log_lines"].pop(0)
+                    crawl_state["exit_code"] = 1
+                    crawl_state["log_lines"].append(f"[System Error] 抓取失败: {res.get('error')}")
+            else:
+                return_code = 0
+                with crawl_lock:
+                    crawl_state["exit_code"] = 0
+                    crawl_state["log_lines"].append("[System] 抓取完成，退出码: 0")
+        else:
+            # 回退子进程执行
+            cmd = [sys.executable, "-u", SCRIPT_PATH, "--csv", CSV_PATH, "--json", JSON_PATH, "--history", HISTORY_PATH]
+            if category and category != "all":
+                cmd.extend(["--category", category])
+            elif category == "all":
+                cmd.extend(["--category", "all"])
+            if sort:
+                cmd.extend(["--sort", sort])
+            if pages:
+                cmd.extend(["--pages", str(pages)])
 
-        proc.stdout.close()
-        return_code = proc.wait()
-        with crawl_lock:
-            crawl_state["exit_code"] = return_code
-            crawl_state["log_lines"].append(f"[System] 抓取完成，退出码: {return_code}")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=BASE_DIR,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            with crawl_lock:
+                crawl_state["process"] = proc
 
-        # 抓取成功后自动触发企业微信捡漏消息推送
+            for line in iter(proc.stdout.readline, ""):
+                line_str = line.rstrip()
+                if line_str:
+                    log_fn(line_str)
+
+            proc.stdout.close()
+            return_code = proc.wait()
+            with crawl_lock:
+                crawl_state["exit_code"] = return_code
+                crawl_state["log_lines"].append(f"[System] 抓取完成，退出码: {return_code}")
+
+        # 抓取成功后自动触发捡漏消息推送
         if return_code == 0 and notifier:
             try:
                 latest_data = get_latest_data()

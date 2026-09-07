@@ -12,3 +12,9 @@ __pycache__/
 # Local workspace metadata
 .workbuddy/
 .system_generated/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.exe
