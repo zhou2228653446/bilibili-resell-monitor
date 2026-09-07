@@ -25,8 +25,12 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
-# 配置文件路径
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 配置文件路径（兼容脚本运行与打包为 exe 运行）
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 NOTIFY_CONFIG_PATH = os.path.join(BASE_DIR, "notify_config.json")
 PUSHED_CACHE_PATH = os.path.join(BASE_DIR, "pushed_alerts.json")
 HISTORY_CSV_PATH = os.path.join(BASE_DIR, "3c_products_history.csv")

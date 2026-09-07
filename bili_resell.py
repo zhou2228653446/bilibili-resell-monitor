@@ -672,16 +672,39 @@ def main():
                         help="价格异动相对阈值(默认 0.10 = 10%%)")
     parser.add_argument("--alert-csv", default=None,
                         help="将价格异动商品导出为 CSV(覆盖写入)")
-    args = parser.parse_args()
+def crawl_and_export(
+    category="898",
+    ip=None,
+    sort="hot",
+    pages=None,
+    output_json="3c_products.json",
+    output_csv="3c_products.csv",
+    history_csv="3c_products_history.csv",
+    no_history=False,
+    no_alert=False,
+    alert_csv=None,
+    alert_prev=3,
+    alert_abs=10.0,
+    alert_pct=0.10,
+    no_overview=False,
+    log_callback=None,
+):
+    """
+    执行核心商品抓取、去重清洗与导出逻辑。
+    可供命令行 main() 与 web_server 线程直接无缝调用。
+    """
+    def log(msg="", flush=True):
+        if log_callback:
+            try:
+                log_callback(str(msg))
+            except Exception:
+                pass
+        else:
+            print(msg, flush=flush)
 
     # 将 "all" / 空字符串 解析为「不筛选」
-    cat = None if args.category in ("", "all") else args.category
-    ip = None if args.ip in ("", "all") else args.ip
-
-    # 仅查看历史走势（不抓取）
-    if args.trend:
-        print_trend(args.history or "3c_products_history.csv", cat)
-        return
+    cat = None if category in ("", "all") else category
+    ip_filter = None if ip in ("", "all") else ip
 
     # 初始化 B 站前端设备指纹 Cookie (buvid3/buvid4)
     init_session_cookies()
@@ -689,36 +712,18 @@ def main():
     try:
         home = get_home()
     except RuntimeError as e:
-        print(f"错误: {e}", file=sys.stderr)
-        sys.exit(1)
+        log(f"错误: {e}")
+        return {"error": str(e), "total": 0}
 
-    if args.list_filters:
-        list_filters(home)
-        return
-
-    if not args.no_overview:
+    if not no_overview and not log_callback:
         print_overview(home)
 
-    # 商品流抓取说明：
-    # 该接口无论 pageSize 传多少都固定返回 20 条，且 hasMore 长期为 true、
-    # 商品列表会循环返回（翻到某一页会与前面完全重复）。因此「获取全部」
-    # 的正确做法是：按 item id 去重，并在「整页都为已见过的商品」时停止翻页。
-    MAX_PAGES = 500  # 安全上限，防止接口异常导致死循环
-    if args.all or args.pages is None:
+    MAX_PAGES = 500
+    if pages is None:
         max_pages = MAX_PAGES
-        mode = "全部(去重后)"
     else:
-        max_pages = args.pages
-        mode = f"前 {args.pages} 页"
+        max_pages = pages
 
-    # 已去重的商品（id -> 原始 item），ordered 保持首次出现顺序
-    seen_ids = set()
-    ordered = []
-
-    # 商品流抓取说明：
-    # B 站 hot 热门排序包含 ~700+ 全量商品（约 36 页），配合 mostListings 与 priceFirst 补全长尾。
-    # 结合 requests.Session 与 429 指数退避刷新指纹，实现真正 100% 完整全库扫描！
-    
     seen_ids = set()
     ordered = []
 
@@ -733,98 +738,96 @@ def main():
         return added
 
     cat_label = f"  分类={cat}" if cat else ""
-    ip_label = f"  IP={ip}" if ip else ""
+    ip_label = f"  IP={ip_filter}" if ip_filter else ""
 
-    if args.pages is not None:
-        # 指定单排序与具体页数（快速模式）
-        sort_modes = [args.sort]
-        max_pages_per_sort = args.pages
-        print(f"\n【商品流】 模式=快速抓取 (单排序 {args.sort} 前 {args.pages} 页){cat_label}{ip_label}")
+    if pages is not None:
+        sort_modes = [sort]
+        max_pages_per_sort = pages
+        log(f"\n【商品流】 模式=快速抓取 (单排序 {sort} 前 {pages} 页){cat_label}{ip_label}")
     else:
-        # 全量模式：以 hot 热门为主航道深挖 700+ 商品，其余排序补全长尾
         all_sorts = ["hot", "mostListings", "priceFirst"]
-        primary = args.sort if args.sort in all_sorts else "hot"
+        primary = sort if sort in all_sorts else "hot"
         sort_modes = [primary] + [s for s in all_sorts if s != primary]
         max_pages_per_sort = 100
-        print(f"\n【商品流】 模式=多维度全量融合抓取 (最全防漏){cat_label}{ip_label}")
+        log(f"\n【商品流】 模式=多维度全量融合抓取 (最全防漏){cat_label}{ip_label}")
 
     for s_idx, current_sort in enumerate(sort_modes, start=1):
         if len(sort_modes) > 1:
-            print(f"\n>>> [{s_idx}/{len(sort_modes)}] 正在抓取「{current_sort}」维度 (当前已累计唯一商品: {len(ordered)} 条)...")
+            log(f"\n>>> [{s_idx}/{len(sort_modes)}] 正在抓取「{current_sort}」维度 (当前已累计唯一商品: {len(ordered)} 条)...")
         
         no_new_streak = 0
         for page in range(1, max_pages_per_sort + 1):
             try:
-                feed = get_feed_safe(page_num=page, sort_type=current_sort, category_id=cat, ip_id=ip)
+                feed = get_feed_safe(page_num=page, sort_type=current_sort, category_id=cat, ip_id=ip_filter)
             except Exception as e:
-                print(f"  (「{current_sort}」第{page}页抓取异常，跳过: {e})")
+                log(f"  (「{current_sort}」第{page}页抓取异常，跳过: {e})")
                 time.sleep(2.0)
                 continue
 
             items = feed.get("items", [])
             if not items:
-                print(f"  (「{current_sort}」排序第{page}页返回空列表，该维度已全部抓取完毕)")
+                log(f"  (「{current_sort}」排序第{page}页返回空列表，该维度已全部抓取完毕)")
                 break
 
             added = add_items(items)
             if added:
                 no_new_streak = 0
-                if page <= 2 and s_idx == 1:
+                if page <= 2 and s_idx == 1 and not log_callback:
                     print_items(added, start_no=len(ordered) - len(added) + 1)
                 else:
-                    print(f"  [第{page:02d}页] 本页 {len(items)} 条 | 新增 {len(added):02d} 条 | 累计唯一商品: {len(ordered)} 条", flush=True)
+                    log(f"  [第{page:02d}页] 本页 {len(items)} 条 | 新增 {len(added):02d} 条 | 累计唯一商品: {len(ordered)} 条")
             else:
                 no_new_streak += 1
-                # hot 具备完整的全库 36+ 页扫描能力，容忍度设为 15 页，确保穿透所有推荐重复区直达 700+ 商品完结
                 streak_limit = 15 if current_sort == "hot" else 6
                 if no_new_streak >= streak_limit:
-                    print(f"  (「{current_sort}」连续 {no_new_streak} 页无新增，判定该维度已抓完)")
+                    log(f"  (「{current_sort}」连续 {no_new_streak} 页无新增，判定该维度已抓完)")
                     break
 
             time.sleep(random.uniform(0.7, 1.1))
 
     total = len(ordered)
     if total > 60:
-        print(f"  ... 已获取 {total} 条唯一商品（为节省篇幅仅展示前若干条，完整数据请用 --json/--csv 导出）")
+        log(f"  ... 已获取 {total} 条唯一商品（为节省篇幅仅展示前若干条，完整数据请用 --json/--csv 导出）")
 
     # 导出数据（均为去重后的唯一商品）
-    if args.json:
+    if output_json:
         export = {
             "meta": {
-                "category": cat, "ip": ip, "sort": args.sort,
+                "category": cat, "ip": ip_filter, "sort": sort,
                 "total": total,
                 "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             },
             "products": [normalize_item(it) for it in ordered],
         }
-        with open(args.json, "w", encoding="utf-8") as f:
+        with open(output_json, "w", encoding="utf-8") as f:
             json.dump(export, f, ensure_ascii=False, indent=2)
-        print(f"已导出商品数据 -> {args.json}")
+        log(f"已导出商品数据 -> {output_json}")
 
-    if args.csv:
-        export_csv(ordered, args.csv)
-        print(f"已导出商品数据 -> {args.csv}")
+    if output_csv:
+        export_csv(ordered, output_csv)
+        log(f"已导出商品数据 -> {output_csv}")
 
     # 历史累计：每次抓取自动追加，便于多次对比走势
     crawl_time = time.strftime("%Y-%m-%d %H:%M:%S")
-    if args.history and not args.no_history:
-        append_history(ordered, args.history, cat, crawl_time)
-        print(f"已追加本次抓取 ({total} 条) 到历史文件 -> {args.history}")
-        print_trend(args.history, cat, current_time=crawl_time)
+    if history_csv and not no_history:
+        append_history(ordered, history_csv, cat, crawl_time)
+        log(f"已追加本次抓取 ({total} 条) 到历史文件 -> {history_csv}")
+        if not log_callback:
+            print_trend(history_csv, cat, current_time=crawl_time)
 
         # 价格异动提醒：对比本次与前 N 次抓取的高位价，降价超阈值即标记
-        if not args.no_alert:
+        if not no_alert:
             alert_res = print_price_alerts(
-                args.history, cat, current_time=crawl_time,
-                prev_n=args.alert_prev, abs_th=args.alert_abs, pct_th=args.alert_pct)
-            if args.alert_csv and alert_res is not None:
-                write_alert_csv(alert_res["alerts"], args.alert_csv)
-                print(f"已导出价格异动 -> {args.alert_csv}")
+                history_csv, cat, current_time=crawl_time,
+                prev_n=alert_prev, abs_th=alert_abs, pct_th=alert_pct)
+            if alert_csv and alert_res is not None:
+                write_alert_csv(alert_res["alerts"], alert_csv)
+                log(f"已导出价格异动 -> {alert_csv}")
 
         # 抓取完成后，若历史文件已有数据且依然显著偏少，输出提示
         history_avg_count = 0
         try:
-            _rows, _times = read_history(args.history)
+            _rows, _times = read_history(history_csv)
             _cat = cat if cat else "all"
             _counts = []
             for _t in _times:
@@ -839,12 +842,89 @@ def main():
             pass
 
         if history_avg_count >= 50 and total < history_avg_count * 0.5:
-            print("")
-            print(f"⚠️ 警告：本次仅抓取 {total} 条，低于历史均值 {history_avg_count:.0f} 的 50%。")
-            print("   建议在控制台或命令行使用 --pages 强制指定翻页深度，或重试抓取。")
+            log(f"\n⚠️ 警告：本次仅抓取 {total} 条，低于历史均值 {history_avg_count:.0f} 的 50%。")
+            log("   建议在控制台或命令行使用 --pages 强制指定翻页深度，或重试抓取。")
 
-    print("\n" + "=" * 60)
-    print(f"本次共获取唯一商品 {total} 条。")
+    log("\n" + "=" * 60)
+    log(f"本次共获取唯一商品 {total} 条。")
+    return {"total": total, "products": ordered}
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="B站会员购转售数据抓取与分析工具",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--list-filters", action="store_true",
+                        help="仅列出支持的分类/IP筛选列表")
+    parser.add_argument("--category", default="898",
+                        help="分类 ID（默认 898=游戏3C数码，填 all 或空表示不限分类）")
+    parser.add_argument("--ip", default=None,
+                        help="IP/品牌 ID，可通过 --list-filters 查看")
+    parser.add_argument("--sort", default="hot",
+                        choices=["hot", "priceFirst", "mostListings"],
+                        help="排序方式：hot(最热/综合), priceFirst(价格最低), mostListings(在售最多)")
+    parser.add_argument("--pages", type=int, default=None,
+                        help="抓取页数（每页20条）。不指定时自动抓取全部去重商品")
+    parser.add_argument("--all", action="store_true",
+                        help="抓取全部商品（自动按商品ID去重，遇到循环页时自动停止）")
+    parser.add_argument("--no-overview", action="store_true",
+                        help="不打印首页概览")
+    parser.add_argument("--csv", default=None,
+                        help="导出商品列表为 CSV 文件路径")
+    parser.add_argument("--json", default=None,
+                        help="导出商品列表为 JSON 文件路径")
+    parser.add_argument("--history", default="3c_products_history.csv",
+                        help="历史数据文件路径（默认 3c_products_history.csv，每次抓取追加写入）")
+    parser.add_argument("--no-history", action="store_true",
+                        help="本次抓取不写入历史文件")
+    parser.add_argument("--trend", action="store_true",
+                        help="仅分析历史文件中的价格走势，不执行新抓取")
+    parser.add_argument("--no-alert", action="store_true",
+                        help="抓取完成后不执行降价提醒分析")
+    parser.add_argument("--alert-prev", type=int, default=3,
+                        help="降价对比的历史抓取批次数(默认前 3 次)")
+    parser.add_argument("--alert-abs", type=float, default=10.0,
+                        help="价格异动绝对阈值(元，默认 10)")
+    parser.add_argument("--alert-pct", type=float, default=0.10,
+                        help="价格异动相对阈值(默认 0.10 = 10%%)")
+    parser.add_argument("--alert-csv", default=None,
+                        help="将价格异动商品导出为 CSV(覆盖写入)")
+    args = parser.parse_args()
+
+    # 仅查看历史走势（不抓取）
+    if args.trend:
+        cat = None if args.category in ("", "all") else args.category
+        print_trend(args.history or "3c_products_history.csv", cat)
+        return
+
+    # 仅列出筛选列表
+    if args.list_filters:
+        init_session_cookies()
+        try:
+            home = get_home()
+            list_filters(home)
+        except RuntimeError as e:
+            print(f"错误: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    crawl_and_export(
+        category=args.category,
+        ip=args.ip,
+        sort=args.sort,
+        pages=args.pages,
+        output_json=args.json,
+        output_csv=args.csv,
+        history_csv=args.history,
+        no_history=args.no_history,
+        no_alert=args.no_alert,
+        alert_csv=args.alert_csv,
+        alert_prev=args.alert_prev,
+        alert_abs=args.alert_abs,
+        alert_pct=args.alert_pct,
+        no_overview=args.no_overview,
+    )
 
 
 if __name__ == "__main__":

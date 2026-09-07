@@ -52,6 +52,15 @@ python web_server.py --open
 > - `--port 8000`：指定 Web 服务监听端口（默认 `8000`）；
 > - `--open`：启动后自动在默认浏览器中打开看板（`http://localhost:8000`）。
 
+### 3. 一键封装为独立 Windows EXE（免 Python 环境）
+项目支持直接打包为单一便携式 `.exe` 可执行程序，用户在**任何未安装 Python 的 Windows 电脑上双击即可直接运行**：
+```bash
+# 执行打包脚本（自动安装 PyInstaller 并生成单一 EXE）
+python build_exe.py
+```
+> 构建完成后，根目录下会生成 `bilibili_resell_monitor.exe`。
+> 双击该文件即可全自动启动后端服务、定时调度器并弹窗打开浏览器！数据与配置自动保存在 exe 同级目录下，随时便携迁移。
+
 ### 3. 命令行独立运行爬虫（可选）
 ```bash
 # 全量抓取 3C数码 分类并导出 JSON 和 CSV
