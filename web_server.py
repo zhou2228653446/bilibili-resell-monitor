@@ -620,9 +620,19 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
         with deals_cache_lock:
             for cid in ids:
                 cid_str = str(cid)
-                if cid_str in deals_cache and deals_cache[cid_str].get("latest_deal_price"):
-                    result[cid_str] = deals_cache[cid_str].get("latest_deal_price")
-                else:
+                cached = deals_cache.get(cid_str)
+                is_fresh = False
+                if cached and cached.get("latest_deal_price"):
+                    result[cid_str] = cached.get("latest_deal_price")
+                    up_str = cached.get("updated_at", "")
+                    if up_str:
+                        try:
+                            up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
+                            if time.time() - up_ts < 7200:
+                                is_fresh = True
+                        except Exception:
+                            pass
+                if not is_fresh:
                     missing_ids.append(cid_str)
 
         if missing_ids and get_cluster_info:

@@ -191,11 +191,12 @@ def get_cluster_info(cluster_id):
                         btn_floor = d.get("clusterPurchaseButton") or {}
 
                         chart_points = recent_buy.get("chartData", {}).get("chartPoints", []) if recent_buy.get("chartData") else []
-                        deals = recent_buy.get("deals", [])
+                        deals = recent_buy.get("recentDeals") or recent_buy.get("deals") or []
 
                         latest_deal_price = None
                         if deals and len(deals) > 0 and deals[0].get("dealPrice"):
-                            latest_deal_price = str(deals[0].get("dealPrice"))
+                            p_val_str = str(deals[0].get("dealPrice")).strip()
+                            latest_deal_price = p_val_str if p_val_str.startswith("¥") else f"¥{p_val_str}"
                         elif chart_points and len(chart_points) > 0:
                             last_pt = chart_points[-1]
                             p_val = last_pt.get("avgPrice") or last_pt.get("price")
@@ -234,11 +235,12 @@ def get_cluster_info(cluster_id):
                 btn_floor = d.get("clusterPurchaseButton") or {}
 
                 chart_points = recent_buy.get("chartData", {}).get("chartPoints", []) if recent_buy.get("chartData") else []
-                deals = recent_buy.get("deals", [])
+                deals = recent_buy.get("recentDeals") or recent_buy.get("deals") or []
 
                 latest_deal_price = None
                 if deals and len(deals) > 0 and deals[0].get("dealPrice"):
-                    latest_deal_price = str(deals[0].get("dealPrice"))
+                    p_val_str = str(deals[0].get("dealPrice")).strip()
+                    latest_deal_price = p_val_str if p_val_str.startswith("¥") else f"¥{p_val_str}"
                 elif chart_points and len(chart_points) > 0:
                     last_pt = chart_points[-1]
                     p_val = last_pt.get("avgPrice") or last_pt.get("price")
