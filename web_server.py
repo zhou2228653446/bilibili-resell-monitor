@@ -335,16 +335,42 @@ def get_latest_data():
             p["discount_rate"] = None
             p["is_super_discount"] = False
 
-    # 6. 从持久化缓存中注入已知的市集最新成交价
+    # 6. 从持久化缓存中注入已知的市集最新成交价（仅注入 24 小时内的最新有效数据）
+    now_ts = time.time()
     with deals_cache_lock:
         for p in products:
-            iid = p.get("cluster_id")
-            if iid in deals_cache and deals_cache[iid].get("latest_deal_price"):
-                p["latest_deal_price"] = deals_cache[iid].get("latest_deal_price")
+            iid = str(p.get("cluster_id"))
+            entry = deals_cache.get(iid)
+            if entry and entry.get("latest_deal_price"):
+                up_str = entry.get("updated_at", "")
+                is_fresh = False
+                if up_str:
+                    try:
+                        up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
+                        if now_ts - up_ts < 86400:
+                            is_fresh = True
+                    except Exception:
+                        pass
+                p["latest_deal_price"] = entry.get("latest_deal_price") if is_fresh else None
+            else:
+                p["latest_deal_price"] = None
+
         for a in alerts:
-            iid = a.get("cluster_id")
-            if iid in deals_cache and deals_cache[iid].get("latest_deal_price"):
-                a["latest_deal_price"] = deals_cache[iid].get("latest_deal_price")
+            iid = str(a.get("cluster_id"))
+            entry = deals_cache.get(iid)
+            if entry and entry.get("latest_deal_price"):
+                up_str = entry.get("updated_at", "")
+                is_fresh = False
+                if up_str:
+                    try:
+                        up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
+                        if now_ts - up_ts < 86400:
+                            is_fresh = True
+                    except Exception:
+                        pass
+                a["latest_deal_price"] = entry.get("latest_deal_price") if is_fresh else None
+            else:
+                a["latest_deal_price"] = None
 
     return {
         "meta": meta,
