@@ -1,18 +1,25 @@
 # -*- coding: utf-8 -*-
-import os, sys
-os.chdir(r"d:\bili")
-sys.path.insert(0, r"d:\bili\android_app")
+"""B站会员购转售监控 - Android 端 (现代沉浸高级版)"""
+import json
+import os
+import sys
+import threading
+import time
+import urllib.request
+import webbrowser
 
+# ---- 中文字体注册（必须置于其他 Kivy 模块导入之前！）----
 from kivy.config import Config
-_FONT_PATH = os.path.join(r"d:\bili\android_app", "NotoSansCJKsc-Regular.otf")
-if os.path.exists(_FONT_PATH):
-    Config.set("kivy", "default_font", repr(["CJK", _FONT_PATH, _FONT_PATH, _FONT_PATH]))
 
-from kivy.core.window import Window
-Window.size = (480, 800)
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "NotoSansCJKsc-Regular.otf")
+if os.path.exists(_FONT_PATH):
+    Config.set("kivy", "default_font",
+               repr(["CJK", _FONT_PATH, _FONT_PATH, _FONT_PATH]))
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.core.text import LabelBase
 from kivy.graphics import Color, RoundedRectangle, Line
@@ -24,14 +31,12 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.image import AsyncImage
-import json
-import threading
-import webbrowser
 
 if os.path.exists(_FONT_PATH):
-    LabelBase.register(name="CJK", fn_regular=_FONT_PATH, fn_bold=_FONT_PATH, fn_italic=_FONT_PATH)
+    LabelBase.register(name="CJK", fn_regular=_FONT_PATH,
+                       fn_bold=_FONT_PATH, fn_italic=_FONT_PATH)
 
-from android_compat import get_out_path
+from android_compat import IS_ANDROID, get_out_path
 import bili_resell
 
 JSON_PATH = get_out_path("3c_products.json")

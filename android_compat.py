@@ -8,7 +8,7 @@
 import os
 import sys
 
-IS_ANDROID = sys.platform == "android"
+IS_ANDROID = sys.platform == "android" or "ANDROID_ARGUMENT" in os.environ or "ANDROID_ENTRYPOINT" in os.environ
 
 
 def get_data_dir():
@@ -29,16 +29,21 @@ def get_data_dir():
 
 
 def get_out_path(filename):
-    """按平台返回数据文件绝对路径。非安卓优先查找存在的文件路径（兼容根目录与 android_app 目录直接调试）。"""
+    """按平台返回数据文件绝对路径。优先查找已有数据，兼顾安卓只读打包目录与私有可写目录。"""
     data_dir = get_data_dir()
     if data_dir is not None:
-        return os.path.join(data_dir, filename)
+        target = os.path.join(data_dir, filename)
+        if os.path.exists(target):
+            return target
+        # 若可写目录暂无，检查 APK 解包出的 app 只读资源目录
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        app_target = os.path.join(app_dir, filename)
+        if os.path.exists(app_target):
+            return app_target
+        return target
     if os.path.exists(filename):
         return os.path.abspath(filename)
-    parent_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    parent_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename)
     if os.path.exists(parent_path):
         return os.path.abspath(parent_path)
-    parent_path_up = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename)
-    if os.path.exists(parent_path_up):
-        return os.path.abspath(parent_path_up)
     return filename
