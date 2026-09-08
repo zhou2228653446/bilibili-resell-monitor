@@ -3,7 +3,8 @@ title = B站捡漏监控
 package.name = biliresellmonitor
 package.domain = org.biliresell
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas
+# 中文字体必须随包分发（安卓无系统 CJK 字体回退，否则全部文字渲染为黑框叉）
+source.include_exts = py,png,jpg,kv,atlas,otf,ttf
 # 复用根目录的爬虫核心模块
 source.exclude_dirs = build,dist,__pycache__,web,tests
 version = 1.0.0
