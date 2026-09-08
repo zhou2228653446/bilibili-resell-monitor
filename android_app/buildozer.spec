@@ -7,7 +7,7 @@ source.include_exts = py,png,jpg,kv,atlas
 # 复用根目录的爬虫核心模块
 source.exclude_dirs = build,dist,__pycache__,web,tests
 version = 1.0.0
-requirements = python3,kivy==2.3.1,requests,urllib3,hostpython3
+requirements = python3,kivy==2.3.1,requests,urllib3,hostpython3,filetype
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE
