@@ -15,12 +15,22 @@ jobs:
       # 不用 ArtemSBulgakov/buildozer-action（其 Dockerfile 无法解析
       # kivy/buildozer 多平台 OCI 镜像，issue #41，已长期无人维护），
       # 直接用官方镜像 docker run 构建。
+      # 编译失败时 buildozer 报错被 docker run 吞在 exit code 里，
+      # 先跑一次拿 exit code，失败则重跑打印完整日志方便排错。
       - name: Build APK (official kivy/buildozer image)
+        id: build
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE/android_app":/home/user/hostcwd \
             ghcr.io/kivy/buildozer:latest \
-            android debug
+            android debug || {
+              echo "::warning::first build failed, rerunning with full log tail"
+              docker run --rm \
+                -v "$GITHUB_WORKSPACE/android_app":/home/user/hostcwd \
+                ghcr.io/kivy/buildozer:latest \
+                bash -c "android debug 2>&1 | tail -120"
+              exit 1
+            }
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
