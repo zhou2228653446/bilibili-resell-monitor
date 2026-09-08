@@ -27,6 +27,20 @@ from kivy.uix.textinput import TextInput
 from android_compat import IS_ANDROID, get_out_path
 import bili_resell
 
+# 注册并全局启用中文字体（打包内 Noto Sans CJK SC，OFL 许可可自由分发）。
+# Kivy 默认 Roboto 不含 CJK 字形，安卓无系统字体回退，缺字会渲染成黑框叉。
+# default_font 格式为 4 元素列表：[name, regular, italic, bold]（见 kivy/config.py）
+from kivy.core.text import LabelBase
+from kivy.config import Config
+
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "NotoSansCJKsc-Regular.otf")
+if os.path.exists(_FONT_PATH):
+    LabelBase.register(name="CJK", fn_regular=_FONT_PATH,
+                       fn_bold=_FONT_PATH, fn_italic=_FONT_PATH)
+    Config.set("kivy", "default_font",
+               repr(["CJK", _FONT_PATH, _FONT_PATH, _FONT_PATH]))
+
 # 安卓端数据文件路径（桌面调试时与原路径一致）
 JSON_PATH = get_out_path("3c_products.json")
 HISTORY_PATH = get_out_path("3c_products_history.csv")
