@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""B站会员购转售监控 - Android 端 (现代沉浸高级版)"""
+"""
+B站会员购转售监控 - Android 端 (v1.4.0 现代化高刷流畅版)
+特性:
+1. 90Hz / 120Hz 高刷新率屏幕自适应调度
+2. Canvas 指令持久化重构，滑动 0 内存抖动，极致流畅
+3. 底部导航栏平滑滑动指示条与页面淡入渐变动效
+4. 实时抓取支持多品类 (3C数码/手办/模型/周边/全部分类) 与多排序维度
+5. 现代化视觉美化、精致标签与深色控制台终端
+"""
 import json
 import os
 import sys
@@ -8,8 +16,11 @@ import time
 import urllib.request
 import webbrowser
 
-# ---- 中文字体注册（必须置于其他 Kivy 模块导入之前！）----
+# ---- 1. 高刷新率配置与字体注册（置于其他 Kivy 模块导入之前） ----
 from kivy.config import Config
+
+# 解除 60 帧限制，启用 120Hz 高刷新率模式
+Config.set("graphics", "maxfps", "120")
 
 _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "NotoSansCJKsc-Regular.otf")
@@ -31,6 +42,8 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.image import AsyncImage
+from kivy.animation import Animation
+from kivy.properties import NumericProperty
 
 if os.path.exists(_FONT_PATH):
     LabelBase.register(name="CJK", fn_regular=_FONT_PATH,
@@ -52,7 +65,7 @@ CLR_CARD = (1.0, 1.0, 1.0, 1.0)                # #FFFFFF 卡片纯白
 CLR_BORDER = (0.910, 0.925, 0.945, 1.0)        # #E8ECF1 边框浅灰
 CLR_TEXT_MAIN = (0.118, 0.141, 0.180, 1.0)     # #1E242E 主黑
 CLR_TEXT_SUB = (0.333, 0.376, 0.435, 1.0)      # #55606F 次黑
-CLR_TEXT_MUTED = (0.580, 0.624, 0.678, 1.0)    # #949FA- 弱灰
+CLR_TEXT_MUTED = (0.580, 0.624, 0.678, 1.0)    # #949FA7 弱灰
 CLR_PRICE_RED = (0.945, 0.220, 0.260, 1.0)     # #F13842 醒目红
 CLR_DEAL_TXT = (0.086, 0.647, 0.290, 1.0)      # #16A54A 绿色
 CLR_DEAL_BG = (0.910, 0.984, 0.933, 1.0)       # #E8FAEE 绿底
@@ -68,56 +81,117 @@ def _parse_price(s):
     except Exception:
         return None
 
+# =====================================================================
+# 高性能持久化指令 UI 组件 (Zero Canvas Allocations on Scroll)
+# =====================================================================
+
 class RoundedBox(BoxLayout):
+    """
+    高性能圆角容器：指令只在 __init__ 创建一次，后续位置/尺寸变动仅更新属性，
+    彻底杜绝滑动过程中高频 clear() 重建引起的 GC 卡顿与掉帧。
+    """
     def __init__(self, bg_color=CLR_CARD, border_color=CLR_BORDER,
                  radius=dp(12), border_width=1, **kw):
         super().__init__(**kw)
-        self.bg_color = bg_color
-        self.border_color = border_color
-        self.radius = radius
-        self.border_width = border_width
-        self.bind(pos=self._redraw, size=self._redraw)
-        Clock.schedule_once(self._redraw, 0)
+        self._bg_color_val = list(bg_color)
+        self._border_color_val = list(border_color) if border_color else None
+        self._radius_val = radius
+        self._border_width_val = border_width
 
-    def _redraw(self, *args):
-        self.canvas.before.clear()
         with self.canvas.before:
-            Color(*self.bg_color)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[self.radius])
-            if self.border_color and self.border_width > 0:
-                Color(*self.border_color)
-                Line(rounded_rectangle=(self.pos[0], self.pos[1], self.size[0], self.size[1], self.radius),
-                     width=self.border_width)
+            self._bg_color_inst = Color(*self._bg_color_val)
+            r_list = [self._radius_val] if isinstance(self._radius_val, (int, float)) else self._radius_val
+            self._rect_inst = RoundedRectangle(pos=self.pos, size=self.size, radius=r_list)
+            if self._border_color_val and self._border_width_val > 0:
+                self._border_color_inst = Color(*self._border_color_val)
+                self._line_inst = Line(
+                    rounded_rectangle=(self.x, self.y, self.width, self.height, self._radius_val),
+                    width=self._border_width_val
+                )
+            else:
+                self._border_color_inst = None
+                self._line_inst = None
+
+        self.bind(pos=self._update_geometry, size=self._update_geometry)
+
+    def _update_geometry(self, *args):
+        if hasattr(self, "_rect_inst"):
+            self._rect_inst.pos = self.pos
+            self._rect_inst.size = self.size
+            if self._line_inst:
+                self._line_inst.rounded_rectangle = (
+                    self.x, self.y, self.width, self.height, self._radius_val
+                )
+
+    def set_bg_color(self, clr):
+        self._bg_color_val = list(clr)
+        if hasattr(self, "_bg_color_inst"):
+            self._bg_color_inst.rgba = clr
+
+    def set_border_color(self, clr):
+        if self._border_color_inst:
+            self._border_color_inst.rgba = clr
+
 
 class ModernButton(Button):
+    """
+    高性能圆角按钮：状态切换仅更新 _bg_color_inst.rgba，
+    完全杜绝重新绘制与 Canvas 抖动。
+    """
     def __init__(self, bg_color=CLR_PRIMARY, text_color=(1, 1, 1, 1),
                  radius=dp(8), border_color=None, border_width=0, **kw):
         super().__init__(**kw)
         self.background_normal = ""
         self.background_down = ""
         self.background_color = (0, 0, 0, 0)
-        self.normal_bg = bg_color
-        self.down_bg = (bg_color[0] * 0.88, bg_color[1] * 0.88, bg_color[2] * 0.88, bg_color[3])
-        self.text_color = text_color
-        self.color = text_color
+        self.normal_bg = list(bg_color)
+        self.down_bg = [bg_color[0] * 0.86, bg_color[1] * 0.86, bg_color[2] * 0.86, bg_color[3]]
         self.radius = radius
-        self.border_color = border_color
+        self.border_color = list(border_color) if border_color else None
         self.border_width = border_width
-        self.bind(pos=self._redraw, size=self._redraw, state=self._redraw)
-        Clock.schedule_once(self._redraw, 0)
+        self.color = text_color
 
-    def _redraw(self, *args):
-        self.canvas.before.clear()
-        bg = self.down_bg if self.state == "down" else self.normal_bg
         with self.canvas.before:
-            Color(*bg)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[self.radius])
+            self._bg_color_inst = Color(*self.normal_bg)
+            r_list = [self.radius] if isinstance(self.radius, (int, float)) else self.radius
+            self._rect_inst = RoundedRectangle(pos=self.pos, size=self.size, radius=r_list)
             if self.border_color and self.border_width > 0:
-                Color(*self.border_color)
-                Line(rounded_rectangle=(self.pos[0], self.pos[1], self.size[0], self.size[1], self.radius),
-                     width=self.border_width)
+                self._border_color_inst = Color(*self.border_color)
+                self._line_inst = Line(
+                    rounded_rectangle=(self.x, self.y, self.width, self.height, self.radius),
+                    width=self.border_width
+                )
+            else:
+                self._border_color_inst = None
+                self._line_inst = None
+
+        self.bind(pos=self._update_geometry, size=self._update_geometry, state=self._update_state)
+
+    def _update_geometry(self, *args):
+        if hasattr(self, "_rect_inst"):
+            self._rect_inst.pos = self.pos
+            self._rect_inst.size = self.size
+            if self._line_inst:
+                self._line_inst.rounded_rectangle = (
+                    self.x, self.y, self.width, self.height, self.radius
+                )
+
+    def _update_state(self, *args):
+        if hasattr(self, "_bg_color_inst"):
+            bg = self.down_bg if self.state == "down" else self.normal_bg
+            self._bg_color_inst.rgba = bg
+
+    def set_bg_color(self, clr):
+        self.normal_bg = list(clr)
+        self.down_bg = [clr[0] * 0.86, clr[1] * 0.86, clr[2] * 0.86, clr[3]]
+        if hasattr(self, "_bg_color_inst"):
+            self._bg_color_inst.rgba = self.normal_bg
+
 
 class FilterChip(Button):
+    """
+    高性能筛选胶囊芯片：圆角 15dp，点击状态切换仅更新指令颜色。
+    """
     def __init__(self, text, active=False, on_select=None, **kw):
         super().__init__(text=text, font_size=sp(12), size_hint=(None, None),
                          height=dp(30), padding=(dp(12), dp(4)), **kw)
@@ -126,12 +200,22 @@ class FilterChip(Button):
         self.background_color = (0, 0, 0, 0)
         self.active = active
         self.on_select = on_select
-        self.bind(on_press=self._on_press)
         self._calc_width()
-        Clock.schedule_once(self._redraw, 0)
 
-    def _calc_width(self, *args):
+        with self.canvas.before:
+            self._bg_color_inst = Color(*(CLR_PRIMARY if self.active else CLR_CHIP_BG))
+            self._rect_inst = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(15)])
+
+        self.color = (1, 1, 1, 1) if self.active else CLR_CHIP_TXT
+        self.bind(pos=self._update_geometry, size=self._update_geometry, on_press=self._on_press)
+
+    def _calc_width(self):
         self.width = max(dp(54), len(self.text) * dp(13) + dp(24))
+
+    def _update_geometry(self, *args):
+        if hasattr(self, "_rect_inst"):
+            self._rect_inst.pos = self.pos
+            self._rect_inst.size = self.size
 
     def _on_press(self, *args):
         if self.on_select:
@@ -139,19 +223,19 @@ class FilterChip(Button):
 
     def set_active(self, val):
         self.active = val
-        self._redraw()
-
-    def _redraw(self, *args):
-        self.canvas.before.clear()
-        bg = CLR_PRIMARY if self.active else CLR_CHIP_BG
+        if hasattr(self, "_bg_color_inst"):
+            self._bg_color_inst.rgba = CLR_PRIMARY if self.active else CLR_CHIP_BG
         self.color = (1, 1, 1, 1) if self.active else CLR_CHIP_TXT
-        with self.canvas.before:
-            Color(*bg)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(15)])
+
+
+# =====================================================================
+# 商品卡片与详情弹窗组件
+# =====================================================================
 
 class ProductCardWidget(RoundedBox):
-    """重构版商品卡片：完全消除重叠、精致圆角相框、多维度价格徽标。"""
-
+    """
+    极速流畅商品卡片：层次分明、图片防越界、多状态标签与优雅间距。
+    """
     def __init__(self, product, on_open_detail=None, **kw):
         super().__init__(orientation="horizontal", padding=dp(10), spacing=dp(10),
                          size_hint=(1, None), height=dp(116),
@@ -174,7 +258,7 @@ class ProductCardWidget(RoundedBox):
         # 2. 右侧信息主布局 (垂直排列)
         info_layout = BoxLayout(orientation="vertical", spacing=dp(4), size_hint=(1, 1))
 
-        # 标题 (限制最多 2 行，绝对不重叠)
+        # 标题 (限制最多 2 行)
         title_text = product.get("title") or "（未命名商品）"
         self.title_lbl = Label(
             text=title_text, font_size=sp(12.5), bold=True,
@@ -263,12 +347,15 @@ class ProductCardWidget(RoundedBox):
                 return True
         return super().on_touch_up(touch)
 
-class ProductDetailModal(ModalView):
-    """重构版商品详情弹窗：无乱码符号、精致层次与买家订单展示。"""
 
+class ProductDetailModal(ModalView):
+    """
+    商品详情弹窗：带有轻柔淡入动效、官方历史成交明细与走势图表。
+    """
     def __init__(self, product, on_price_updated=None, **kw):
         super().__init__(size_hint=(0.94, 0.88), auto_dismiss=True, **kw)
-        self.background_color = (0, 0, 0, 0.6)
+        self.background_color = (0, 0, 0, 0)
+        self.opacity = 0
         self.product = product
         self.cluster_id = str(product.get("cluster_id") or "")
         self.on_price_updated = on_price_updated
@@ -338,7 +425,8 @@ class ProductDetailModal(ModalView):
         main_card.add_widget(btn_row)
 
         # 4. 可滚动的成交明细与属性列表
-        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True,
+                            scroll_distance=dp(5))
         self.detail_content = BoxLayout(orientation="vertical", size_hint_y=None,
                                         spacing=dp(8), padding=(0, dp(4)))
         self.detail_content.bind(minimum_height=self.detail_content.setter("height"))
@@ -351,6 +439,13 @@ class ProductDetailModal(ModalView):
 
         self.add_widget(main_card)
         Clock.schedule_once(lambda _dt: self._fetch_live_deals(), 0.1)
+
+    def on_open(self):
+        super().on_open()
+        # 打开弹窗淡入动效
+        Animation.stop_all(self)
+        anim = Animation(opacity=1.0, background_color=(0, 0, 0, 0.65), d=0.22, t="out_quad")
+        anim.start(self)
 
     def _open_bili_url(self):
         url = self.product.get("url")
@@ -473,11 +568,21 @@ class ProductDetailModal(ModalView):
                 arow.add_widget(av_lbl)
                 self.detail_content.add_widget(arow)
 
-class ModernTabBar(RoundedBox):
+
+# =====================================================================
+# 丝滑滑动指示条底部导航栏 (ModernTabBar with Animation)
+# =====================================================================
+
+class ModernTabBar(BoxLayout):
+    """
+    带有平滑动效指示条的现代化底部导航栏：
+    点击切换时，粉色胶囊通过 Animation(indicator_x) 丝滑平移，彻底告别生硬突兀。
+    """
+    indicator_x = NumericProperty(0)
+
     def __init__(self, app_ref, **kw):
-        super().__init__(size_hint=(1, None), height=dp(52), padding=(dp(8), dp(2)),
-                         spacing=dp(4), bg_color=CLR_CARD, border_color=CLR_BORDER,
-                         radius=0, border_width=1, **kw)
+        super().__init__(size_hint=(1, None), height=dp(54), padding=(dp(6), dp(2)),
+                         spacing=dp(4), orientation="horizontal", **kw)
         self.app_ref = app_ref
         self.tabs = [
             ("市集大盘", app_ref.show_list),
@@ -487,21 +592,53 @@ class ModernTabBar(RoundedBox):
         ]
         self.buttons = []
         self.active_index = 0
+        self.indicator_width = dp(36)
+
+        # 底部背景与上边框 (持久化指令)
+        with self.canvas.before:
+            Color(*CLR_CARD)
+            self._bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[0])
+            Color(*CLR_BORDER)
+            self._border_line = Line(points=[self.x, self.top, self.right, self.top], width=1)
+
+        # 平滑滑动指示条 (持久化指令)
+        with self.canvas.after:
+            Color(*CLR_PRIMARY)
+            self._indicator = RoundedRectangle(
+                pos=(self.x, self.y + dp(3)),
+                size=(self.indicator_width, dp(3)),
+                radius=[dp(1.5)]
+            )
+
+        self.bind(pos=self._update_bar_geometry, size=self._update_bar_geometry)
+
         for idx, (title, cb) in enumerate(self.tabs):
             btn = Button(text=title, font_size=sp(12.5), bold=False,
                          background_normal="", background_down="",
-                         background_color=(0, 0, 0, 0))
+                         background_color=(0, 0, 0, 0), color=CLR_TAB_INACTIVE)
             btn.bind(on_press=lambda _b, i=idx, f=cb: self._switch_tab(i, f))
             self.add_widget(btn)
             self.buttons.append(btn)
-        self.bind(pos=self._redraw_indicator, size=self._redraw_indicator)
-        self.set_active_index(0)
+
+        Clock.schedule_once(lambda _dt: self.set_active_index(0, animate=False), 0)
+
+    def on_indicator_x(self, inst, val):
+        if hasattr(self, "_indicator"):
+            self._indicator.pos = (val, self.y + dp(3))
+
+    def _update_bar_geometry(self, *args):
+        self._bg_rect.pos = self.pos
+        self._bg_rect.size = self.size
+        self._border_line.points = [self.x, self.top, self.right, self.top]
+        self._position_indicator(self.active_index, animate=False)
 
     def _switch_tab(self, index, callback):
-        self.set_active_index(index)
+        if index == self.active_index:
+            return
+        self.set_active_index(index, animate=True)
         callback()
 
-    def set_active_index(self, active_idx):
+    def set_active_index(self, active_idx, animate=True):
         self.active_index = active_idx
         for idx, btn in enumerate(self.buttons):
             if idx == active_idx:
@@ -512,19 +649,20 @@ class ModernTabBar(RoundedBox):
                 btn.color = CLR_TAB_INACTIVE
                 btn.bold = False
                 btn.font_size = sp(12.5)
-        Clock.schedule_once(self._redraw_indicator, 0)
+        self._position_indicator(active_idx, animate=animate)
 
-    def _redraw_indicator(self, *args):
-        self.canvas.after.clear()
-        if 0 <= self.active_index < len(self.buttons):
-            btn = self.buttons[self.active_index]
+    def _position_indicator(self, active_idx, animate=True):
+        if 0 <= active_idx < len(self.buttons):
+            btn = self.buttons[active_idx]
             if btn.width > 0:
-                bar_w = dp(32)
-                bar_x = btn.x + (btn.width - bar_w) / 2
-                bar_y = self.y + dp(3)
-                with self.canvas.after:
-                    Color(*CLR_PRIMARY)
-                    RoundedRectangle(pos=(bar_x, bar_y), size=(bar_w, dp(3)), radius=[dp(1.5)])
+                target_x = btn.x + (btn.width - self.indicator_width) / 2
+                if animate:
+                    Animation.stop_all(self)
+                    anim = Animation(indicator_x=target_x, d=0.22, t="out_quad")
+                    anim.start(self)
+                else:
+                    self.indicator_x = target_x
+
 
 # =====================================================================
 # 应用核心逻辑 (ResellMonitorMobile)
@@ -537,16 +675,16 @@ class ResellMonitorMobile(App):
         self.root_box = BoxLayout(orientation="vertical")
 
         # 顶部全局导航栏 (B站粉 + 胶囊在售徽标)
-        self.header_bar = RoundedBox(orientation="horizontal", size_hint=(1, None), height=dp(48),
+        self.header_bar = RoundedBox(orientation="horizontal", size_hint=(1, None), height=dp(50),
                                      padding=(dp(16), dp(8)), spacing=dp(8),
                                      bg_color=CLR_PRIMARY, radius=0, border_width=0)
         self.header_title = Label(text="哔哩转售捡漏监控", font_size=sp(16), bold=True,
                                   color=(1, 1, 1, 1), halign="left", valign="middle")
         self.header_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
 
-        badge_box = RoundedBox(size_hint=(None, None), size=(dp(84), dp(26)),
+        badge_box = RoundedBox(size_hint=(None, None), size=(dp(88), dp(28)),
                                bg_color=(1, 1, 1, 0.22), border_color=(1, 1, 1, 0.4),
-                               radius=dp(13), border_width=1)
+                               radius=dp(14), border_width=1)
         self.header_count_badge = Label(text="实时 --件", font_size=sp(11), bold=True,
                                         color=(1, 1, 1, 1), halign="center", valign="middle")
         badge_box.add_widget(self.header_count_badge)
@@ -555,11 +693,11 @@ class ResellMonitorMobile(App):
         self.header_bar.add_widget(badge_box)
         self.root_box.add_widget(self.header_bar)
 
-        # 中间内容区域
+        # 中间内容区域 (带淡入动效的容器)
         self.content = BoxLayout(orientation="vertical", padding=(dp(12), dp(10)), spacing=dp(8))
         self.root_box.add_widget(self.content)
 
-        # 底部导航栏
+        # 底部平滑导航栏
         self.tab_bar = ModernTabBar(self)
         self.root_box.add_widget(self.tab_bar)
 
@@ -571,11 +709,58 @@ class ResellMonitorMobile(App):
         self.active_filter = "all"
         self.active_sort = "default"
         self.search_keyword = ""
-        self.page_render_limit = 50
+        self.page_render_limit = 40
+
+        # 抓取控制台配置（与电脑端对齐）
+        self.crawl_category = "898"       # 默认 3C数码
+        self.crawl_sort = "hot"           # 默认 综合推荐
+        self.crawl_pages = 15             # 默认 常规 15页
 
         # 启动时加载列表
         Clock.schedule_once(lambda _dt: self.show_list(), 0.1)
         return self.root_box
+
+    def on_start(self):
+        """应用启动后尝试设置 Android 原生 120Hz 高刷新率调度。"""
+        if IS_ANDROID:
+            self._enable_android_high_refresh_rate()
+
+    def _enable_android_high_refresh_rate(self):
+        """利用 PyJNIus 申请 Android 系统窗口最高刷新率 (90Hz / 120Hz / 144Hz)。"""
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            activity = PythonActivity.mActivity
+            window = activity.getWindow()
+            layout_params = window.getAttributes()
+
+            display = activity.getWindowManager().getDefaultDisplay()
+            modes = display.getSupportedModes()
+            if modes:
+                best_mode = max(modes, key=lambda m: m.getRefreshRate())
+                max_rr = float(best_mode.getRefreshRate())
+                if max_rr > 60.0:
+                    layout_params.preferredDisplayModeId = best_mode.getModeId()
+                    layout_params.preferredRefreshRate = max_rr
+                    window.setAttributes(layout_params)
+                    print(f"[Android Display] 已成功激活高刷新率模式: {max_rr:.1f}Hz (Mode ID: {best_mode.getModeId()})")
+                    return
+
+            layout_params.preferredRefreshRate = 120.0
+            window.setAttributes(layout_params)
+            print("[Android Display] 已请求 120Hz 优先刷新率")
+        except Exception as e:
+            print(f"[Android Display] 高刷申请降级 (使用系统默认): {e}")
+
+    # ---------- 屏幕平滑过渡切换 ----------
+    def _switch_screen(self, screen_builder):
+        """页面切换淡入过渡动画，消除画面硬切的生硬感。"""
+        Animation.stop_all(self.content)
+        self.content.opacity = 0
+        self.content.clear_widgets()
+        screen_builder()
+        anim = Animation(opacity=1.0, d=0.20, t="out_quad")
+        anim.start(self.content)
 
     # ---------- 数据读取与过滤 ----------
     def load_data(self):
@@ -595,7 +780,7 @@ class ResellMonitorMobile(App):
                 with open(DEALS_CACHE_PATH, "r", encoding="utf-8") as f:
                     deals_cache = json.load(f)
             except Exception:
-                pass
+                deals_cache = {}
 
         for p in self.all_products:
             cid = str(p.get("cluster_id") or "")
@@ -662,7 +847,9 @@ class ResellMonitorMobile(App):
     def show_list(self):
         self.current_tab = "list"
         self.tab_bar.set_active_index(0)
-        self.content.clear_widgets()
+        self._switch_screen(self._build_list_screen)
+
+    def _build_list_screen(self):
         self.load_data()
         self.apply_filters()
 
@@ -685,7 +872,7 @@ class ResellMonitorMobile(App):
 
         def _on_search_change(_inst, val):
             self.search_keyword = val
-            self.page_render_limit = 50
+            self.page_render_limit = 40
             self.apply_filters()
             self._repopulate_list()
 
@@ -702,7 +889,8 @@ class ResellMonitorMobile(App):
 
         # B. 筛选标签芯片栏 (横向丝滑滑动条)
         chip_scroll = ScrollView(size_hint=(1, None), height=dp(32),
-                                 do_scroll_x=True, do_scroll_y=False, bar_width=0)
+                                 do_scroll_x=True, do_scroll_y=False, bar_width=0,
+                                 scroll_distance=dp(5))
         chip_box = BoxLayout(orientation="horizontal", size_hint_x=None, spacing=dp(8))
         chip_box.bind(minimum_width=chip_box.setter("width"))
 
@@ -739,14 +927,14 @@ class ResellMonitorMobile(App):
         }
         sort_spinner = Spinner(text=sort_map_names.get(self.active_sort, "默认排序"),
                                values=("默认排序", "差价最大", "价格升序", "价格降序", "折扣最大"),
-                               size_hint=(None, 1), width=dp(84), font_size=sp(10.5),
+                               size_hint=(None, 1), width=dp(86), font_size=sp(10.5),
                                background_normal="", background_color=CLR_CHIP_BG,
                                color=CLR_TEXT_SUB)
 
         def _on_sort_change(_s, val):
             name_to_key = {v: k for k, v in sort_map_names.items()}
             self.active_sort = name_to_key.get(val, "default")
-            self.page_render_limit = 50
+            self.page_render_limit = 40
             self.apply_filters()
             self._repopulate_list()
 
@@ -754,8 +942,11 @@ class ResellMonitorMobile(App):
         meta_bar.add_widget(sort_spinner)
         self.content.add_widget(meta_bar)
 
-        # D. 滚动商品列表
-        self.scroll_view = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
+        # D. 高帧率平滑滚动商品列表
+        self.scroll_view = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True,
+                                      scroll_distance=dp(5),
+                                      smooth_scroll_end=12, bar_width=dp(3),
+                                      bar_color=(0.984, 0.447, 0.600, 0.35))
         self.list_grid = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10))
         self.list_grid.bind(minimum_height=self.list_grid.setter("height"))
         self.scroll_view.add_widget(self.list_grid)
@@ -768,7 +959,7 @@ class ResellMonitorMobile(App):
         for k, chip in (("all", self.chip_all), ("below_deal", self.chip_below),
                         ("super_discount", self.chip_super), ("has_deal", self.chip_has)):
             chip.set_active(k == filter_key)
-        self.page_render_limit = 50
+        self.page_render_limit = 40
         self.apply_filters()
         self._repopulate_list()
 
@@ -805,7 +996,7 @@ class ResellMonitorMobile(App):
             self.list_grid.add_widget(more_btn)
 
     def _load_more_items(self, *args):
-        self.page_render_limit += 50
+        self.page_render_limit += 40
         self._repopulate_list()
 
     def open_detail_modal(self, product):
@@ -818,7 +1009,9 @@ class ResellMonitorMobile(App):
     def show_radar(self):
         self.current_tab = "radar"
         self.tab_bar.set_active_index(1)
-        self.content.clear_widgets()
+        self._switch_screen(self._build_radar_screen)
+
+    def _build_radar_screen(self):
         self.load_data()
 
         hot_deals = []
@@ -841,7 +1034,9 @@ class ResellMonitorMobile(App):
                                 font_size=sp(11.5), color=CLR_TEXT_SUB, halign="left", valign="middle"))
         self.content.add_widget(banner)
 
-        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True,
+                            scroll_distance=dp(5),
+                            bar_width=dp(3), bar_color=(0.984, 0.447, 0.600, 0.35))
         list_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10))
         list_box.bind(minimum_height=list_box.setter("height"))
 
@@ -862,18 +1057,21 @@ class ResellMonitorMobile(App):
         self.content.add_widget(scroll)
 
     # =====================================================================
-    # 页面三：实时抓取控制台 (show_crawl)
+    # 页面三：实时抓取控制台 (show_crawl - 电脑端对齐品类/排序/深度)
     # =====================================================================
     def show_crawl(self):
         self.current_tab = "crawl"
         self.tab_bar.set_active_index(2)
-        self.content.clear_widgets()
+        self._switch_screen(self._build_crawl_screen)
+
+    def _build_crawl_screen(self):
         self.load_data()
 
         prices = [_parse_price(p.get("price")) for p in self.all_products if _parse_price(p.get("price"))]
         avg_p = f"¥{sum(prices)/len(prices):.1f}" if prices else "¥--"
         min_p = f"¥{min(prices):.1f}" if prices else "¥--"
 
+        # 1. 统计卡片指标行
         kpi_row = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(64), spacing=dp(8))
         kpi_data = [
             ("在售总量", f"{len(self.all_products)} 件", CLR_PRIMARY),
@@ -888,83 +1086,197 @@ class ResellMonitorMobile(App):
             kpi_row.add_widget(box)
         self.content.add_widget(kpi_row)
 
-        cfg_panel = RoundedBox(orientation="vertical", padding=dp(12), spacing=dp(10),
-                               size_hint=(1, None), height=dp(120),
+        # 2. 抓取参数配置卡片 (多品类 + 多排序 + 翻页深度)
+        cfg_panel = RoundedBox(orientation="vertical", padding=dp(12), spacing=dp(8),
+                               size_hint=(1, None), height=dp(170),
                                bg_color=CLR_CARD, border_color=CLR_BORDER, radius=dp(12))
 
-        row1 = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(30), spacing=dp(6))
-        row1.add_widget(Label(text="抓取深度:", font_size=sp(12), color=CLR_TEXT_MAIN, size_hint=(None, 1), width=dp(64)))
+        # A. 分类维度选择 (对齐电脑端 898/142/807/175/all)
+        cat_scroll = ScrollView(size_hint=(1, None), height=dp(28),
+                                do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        cat_box = BoxLayout(orientation="horizontal", size_hint_x=None, spacing=dp(6))
+        cat_box.bind(minimum_width=cat_box.setter("width"))
 
-        self.crawl_pages = 15
+        cat_lbl = Label(text="品类:", font_size=sp(11.5), bold=True, color=CLR_TEXT_MAIN,
+                        size_hint=(None, 1), width=dp(36))
+        cat_box.add_widget(cat_lbl)
+
+        self.cat_chip_btns = []
+        categories = [
+            ("3C数码", "898"),
+            ("模玩手办", "142"),
+            ("拼装模型", "807"),
+            ("动漫周边", "175"),
+            ("全站商品", "all"),
+        ]
+        for name, cid in categories:
+            is_active = (self.crawl_category == cid)
+            c_btn = ModernButton(
+                text=name, font_size=sp(11), size_hint=(None, 1), width=dp(68),
+                bg_color=CLR_PRIMARY if is_active else CLR_CHIP_BG,
+                text_color=(1, 1, 1, 1) if is_active else CLR_TEXT_SUB,
+                radius=dp(6)
+            )
+            c_btn.bind(on_press=lambda _b, code=cid: self._set_crawl_category(code))
+            cat_box.add_widget(c_btn)
+            self.cat_chip_btns.append((cid, c_btn))
+
+        cat_scroll.add_widget(cat_box)
+        cfg_panel.add_widget(cat_scroll)
+
+        # B. 排序规则选择 (对齐电脑端 hot/mostListings/priceFirst)
+        sort_row = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(28), spacing=dp(6))
+        sort_lbl = Label(text="排序:", font_size=sp(11.5), bold=True, color=CLR_TEXT_MAIN,
+                         size_hint=(None, 1), width=dp(36))
+        sort_row.add_widget(sort_lbl)
+
+        self.sort_chip_btns = []
+        sort_options = [
+            ("综合最热", "hot"),
+            ("挂售最多", "mostListings"),
+            ("价格最低", "priceFirst"),
+        ]
+        for sname, scode in sort_options:
+            is_active = (self.crawl_sort == scode)
+            s_btn = ModernButton(
+                text=sname, font_size=sp(11), size_hint=(1, 1),
+                bg_color=CLR_PRIMARY if is_active else CLR_CHIP_BG,
+                text_color=(1, 1, 1, 1) if is_active else CLR_TEXT_SUB,
+                radius=dp(6)
+            )
+            s_btn.bind(on_press=lambda _b, code=scode: self._set_crawl_sort(code))
+            sort_row.add_widget(s_btn)
+            self.sort_chip_btns.append((scode, s_btn))
+        cfg_panel.add_widget(sort_row)
+
+        # C. 深度选择 (5页 / 15页 / 50页 / 全量)
+        depth_row = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(28), spacing=dp(6))
+        depth_lbl = Label(text="深度:", font_size=sp(11.5), bold=True, color=CLR_TEXT_MAIN,
+                          size_hint=(None, 1), width=dp(36))
+        depth_row.add_widget(depth_lbl)
+
         self.page_btns = []
-        for pg_num, pg_label in [(5, "快速 5页"), (15, "常规 15页"), (50, "全量 50页")]:
-            p_btn = ModernButton(text=pg_label, font_size=sp(11.5), size_hint=(1, 1),
-                                 bg_color=CLR_PRIMARY if pg_num == self.crawl_pages else CLR_CHIP_BG,
-                                 text_color=(1, 1, 1, 1) if pg_num == self.crawl_pages else CLR_TEXT_SUB,
-                                 radius=dp(6))
+        depth_options = [
+            (5, "5页"),
+            (15, "15页"),
+            (50, "50页"),
+            (None, "全量防漏"),
+        ]
+        for pg_num, pg_label in depth_options:
+            is_active = (self.crawl_pages == pg_num)
+            p_btn = ModernButton(
+                text=pg_label, font_size=sp(11), size_hint=(1, 1),
+                bg_color=CLR_PRIMARY if is_active else CLR_CHIP_BG,
+                text_color=(1, 1, 1, 1) if is_active else CLR_TEXT_SUB,
+                radius=dp(6)
+            )
             p_btn.bind(on_press=lambda _b, n=pg_num: self._set_crawl_pages(n))
-            row1.add_widget(p_btn)
+            depth_row.add_widget(p_btn)
             self.page_btns.append((pg_num, p_btn))
-        cfg_panel.add_widget(row1)
+        cfg_panel.add_widget(depth_row)
 
+        # D. 开始执行按钮
         self.crawl_action_btn = ModernButton(
             text="开始实时抓取数据", font_size=sp(13.5), bold=True,
-            size_hint=(1, None), height=dp(38),
+            size_hint=(1, None), height=dp(36),
             bg_color=CLR_PRIMARY, text_color=(1, 1, 1, 1), radius=dp(8)
         )
         self.crawl_action_btn.bind(on_press=lambda _b: self._start_crawl())
         cfg_panel.add_widget(self.crawl_action_btn)
         self.content.add_widget(cfg_panel)
 
+        # 3. 现代化深色控制台终端
         term_card = RoundedBox(orientation="vertical", padding=dp(10), spacing=dp(4),
-                               size_hint=(1, 1), bg_color=(0.10, 0.12, 0.16, 1.0),
-                               border_color=(0.20, 0.22, 0.28, 1.0), radius=dp(10))
+                               size_hint=(1, 1), bg_color=(0.06, 0.08, 0.12, 1.0),
+                               border_color=(0.16, 0.20, 0.28, 1.0), radius=dp(10))
 
-        term_title = Label(text="实时控制台输出", font_size=sp(11), bold=True,
-                           color=(0.6, 0.7, 0.8, 1), size_hint=(1, None), height=dp(20), halign="left")
+        term_top = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(20), spacing=dp(6))
+        term_dot = Label(text="●", font_size=sp(10), color=(0.2, 0.8, 0.4, 1), size_hint=(None, 1), width=dp(14))
+        term_title = Label(text="实时控制台输出 (Terminal Log)", font_size=sp(11), bold=True,
+                           color=(0.7, 0.78, 0.88, 1), size_hint=(1, 1), halign="left")
         term_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
-        term_card.add_widget(term_title)
+        term_top.add_widget(term_dot)
+        term_top.add_widget(term_title)
+        term_card.add_widget(term_top)
 
-        log_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
+        self.crawl_log_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True,
+                                           scroll_distance=dp(5))
+        cat_str = self._get_cat_name(self.crawl_category)
         self.crawl_log_lbl = Label(
-            text="准备就绪。点击上方「开始实时抓取数据」启动爬虫。\n抓取完成后主列表与雷达将自动无感更新。",
-            font_size=sp(11), color=(0.4, 0.85, 0.55, 1.0),
+            text=f"系统准备就绪。\n当前配置: 品类={cat_str} | 排序={self._get_sort_name(self.crawl_sort)} | 深度={self.crawl_pages or '全量'}\n点击上方「开始实时抓取数据」启动爬虫。",
+            font_size=sp(11), color=(0.4, 0.88, 0.55, 1.0),
             size_hint_y=None, halign="left", valign="top"
         )
         self.crawl_log_lbl.bind(width=lambda inst, val: setattr(inst, 'text_size', (val, None)))
         self.crawl_log_lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', max(dp(80), val[1])))
-        log_scroll.add_widget(self.crawl_log_lbl)
-        term_card.add_widget(log_scroll)
+        self.crawl_log_scroll.add_widget(self.crawl_log_lbl)
+        term_card.add_widget(self.crawl_log_scroll)
         self.content.add_widget(term_card)
+
+    def _get_cat_name(self, cid):
+        names = {"898": "3C数码", "142": "模玩手办", "807": "拼装模型", "175": "动漫周边", "all": "全站商品"}
+        return names.get(str(cid), str(cid))
+
+    def _get_sort_name(self, scode):
+        names = {"hot": "综合最热", "mostListings": "挂售最多", "priceFirst": "价格最低"}
+        return names.get(scode, scode)
+
+    def _set_crawl_category(self, cid):
+        self.crawl_category = cid
+        for code, btn in self.cat_chip_btns:
+            active = (code == cid)
+            btn.set_bg_color(CLR_PRIMARY if active else CLR_CHIP_BG)
+            btn.color = (1, 1, 1, 1) if active else CLR_TEXT_SUB
+
+    def _set_crawl_sort(self, scode):
+        self.crawl_sort = scode
+        for code, btn in self.sort_chip_btns:
+            active = (code == scode)
+            btn.set_bg_color(CLR_PRIMARY if active else CLR_CHIP_BG)
+            btn.color = (1, 1, 1, 1) if active else CLR_TEXT_SUB
 
     def _set_crawl_pages(self, num):
         self.crawl_pages = num
         for pg_num, btn in self.page_btns:
-            btn.normal_bg = CLR_PRIMARY if pg_num == num else CLR_CHIP_BG
-            btn.color = (1, 1, 1, 1) if pg_num == num else CLR_TEXT_SUB
-            btn._redraw()
+            active = (pg_num == num)
+            btn.set_bg_color(CLR_PRIMARY if active else CLR_CHIP_BG)
+            btn.color = (1, 1, 1, 1) if active else CLR_TEXT_SUB
 
     def _start_crawl(self):
         if self.crawling:
             return
         self.crawling = True
         self.crawl_action_btn.text = "正在抓取中，请稍候…"
-        self.crawl_action_btn.normal_bg = (0.7, 0.7, 0.7, 1)
-        self.crawl_action_btn._redraw()
-        self.crawl_log_lbl.text = f"[启动] 开始从 B 站会员购抓取前 {self.crawl_pages} 页转售商品…\n"
+        self.crawl_action_btn.set_bg_color((0.6, 0.6, 0.6, 1))
+
+        cat_title = self._get_cat_name(self.crawl_category)
+        sort_title = self._get_sort_name(self.crawl_sort)
+        depth_title = f"{self.crawl_pages}页" if self.crawl_pages else "全量防漏模式"
+
+        self.crawl_log_lbl.text = (
+            f"[启动] 开始从 B 站会员购抓取【{cat_title}】转售商品…\n"
+            f"       排序模式: {sort_title} | 深度: {depth_title}\n"
+            f"       正在建立网络连接并获取设备指纹…\n"
+        )
 
         def log_cb(msg):
             Clock.schedule_once(lambda dt: self._append_crawl_log(msg), 0)
 
         def worker():
             try:
-                bili_resell.crawl_and_process(
-                    category="3C",
-                    sort_type="TIME_DESC",
-                    max_pages=self.crawl_pages,
-                    log_fn=log_cb
+                res = bili_resell.crawl_and_export(
+                    category=self.crawl_category,
+                    sort=self.crawl_sort,
+                    pages=self.crawl_pages,
+                    output_json=JSON_PATH,
+                    log_callback=log_cb
                 )
-                log_cb("\n[完成] 本轮数据抓取与大盘入库已成功完成！")
+                err = res.get("error") if isinstance(res, dict) else None
+                if err:
+                    log_cb(f"\n[失败] 抓取遇到问题: {err}")
+                else:
+                    tot = res.get("total", 0) if isinstance(res, dict) else 0
+                    log_cb(f"\n[完成] 本轮数据抓取入库完成！本次累计去重商品 {tot} 条。")
             except Exception as e:
                 log_cb(f"\n[异常] 抓取失败: {e}")
             finally:
@@ -974,13 +1286,15 @@ class ResellMonitorMobile(App):
         threading.Thread(target=worker, daemon=True).start()
 
     def _append_crawl_log(self, msg):
-        self.crawl_log_lbl.text += msg + "\n"
+        self.crawl_log_lbl.text += str(msg) + "\n"
+        # 自动平滑滚动到底部
+        if hasattr(self, "crawl_log_scroll") and self.crawl_log_scroll:
+            Clock.schedule_once(lambda _dt: setattr(self.crawl_log_scroll, "scroll_y", 0), 0.05)
 
     def _crawl_done(self):
         if hasattr(self, "crawl_action_btn") and self.crawl_action_btn:
             self.crawl_action_btn.text = "开始实时抓取数据"
-            self.crawl_action_btn.normal_bg = CLR_PRIMARY
-            self.crawl_action_btn._redraw()
+            self.crawl_action_btn.set_bg_color(CLR_PRIMARY)
         self.load_data()
 
     # =====================================================================
@@ -989,9 +1303,11 @@ class ResellMonitorMobile(App):
     def show_settings(self):
         self.current_tab = "settings"
         self.tab_bar.set_active_index(3)
-        self.content.clear_widgets()
+        self._switch_screen(self._build_settings_screen)
 
-        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
+    def _build_settings_screen(self):
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True,
+                            scroll_distance=dp(5))
         set_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12))
         set_box.bind(minimum_height=set_box.setter("height"))
 
@@ -1054,20 +1370,20 @@ class ResellMonitorMobile(App):
         set_box.add_widget(cache_card)
 
         about_card = RoundedBox(orientation="vertical", padding=dp(14), spacing=dp(6),
-                                size_hint=(1, None), height=dp(100),
+                                size_hint=(1, None), height=dp(104),
                                 bg_color=CLR_CARD, border_color=CLR_BORDER, radius=dp(12))
         about_title = Label(text="关于哔哩转售捡漏监控", font_size=sp(14), bold=True,
                             color=CLR_TEXT_MAIN, size_hint=(1, None), height=dp(22), halign="left")
         about_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(about_title)
 
-        ver_lbl = Label(text="版本: v1.2.0 (现代沉浸高级版)", font_size=sp(12),
+        ver_lbl = Label(text="版本: v1.4.0 (120Hz 高刷流光版)", font_size=sp(12),
                         color=CLR_PRIMARY, size_hint=(1, None), height=dp(20), halign="left")
         ver_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(ver_lbl)
 
-        sub_lbl = Label(text="支持 B 站会员购数码转售行情监控、真实成交价穿透与捡漏预警。",
-                        font_size=sp(11), color=CLR_TEXT_MUTED, size_hint=(1, None), height=dp(20), halign="left")
+        sub_lbl = Label(text="全面支持 90/120Hz 屏幕、多品类抓取、零内存抖动流畅滑动与实时成交走势穿透。",
+                        font_size=sp(10.5), color=CLR_TEXT_MUTED, size_hint=(1, None), height=dp(24), halign="left")
         sub_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(sub_lbl)
         set_box.add_widget(about_card)
@@ -1085,7 +1401,7 @@ class ResellMonitorMobile(App):
             err = None
             try:
                 url = f"http://{ip_port}/3c_products.json"
-                req = urllib.request.Request(url, headers={"User-Agent": "BiliResellAndroid/1.0"})
+                req = urllib.request.Request(url, headers={"User-Agent": "BiliResellAndroid/1.4"})
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = resp.read()
                 with open(JSON_PATH, "wb") as f:
