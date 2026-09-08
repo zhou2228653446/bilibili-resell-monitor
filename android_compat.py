@@ -29,8 +29,16 @@ def get_data_dir():
 
 
 def get_out_path(filename):
-    """按平台返回数据文件绝对路径。非安卓返回 filename 本身（保持原行为）。"""
+    """按平台返回数据文件绝对路径。非安卓优先查找存在的文件路径（兼容根目录与 android_app 目录直接调试）。"""
     data_dir = get_data_dir()
-    if data_dir is None:
-        return filename
-    return os.path.join(data_dir, filename)
+    if data_dir is not None:
+        return os.path.join(data_dir, filename)
+    if os.path.exists(filename):
+        return os.path.abspath(filename)
+    parent_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    if os.path.exists(parent_path):
+        return os.path.abspath(parent_path)
+    parent_path_up = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename)
+    if os.path.exists(parent_path_up):
+        return os.path.abspath(parent_path_up)
+    return filename
