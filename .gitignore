@@ -24,5 +24,10 @@ android_app/.buildozer/
 .buildozer-global/
 android_app/bin/
 
+# adb crash log capture
+platform-tools/
+platform-tools.zip
+crash_log.txt
+
 # Local notification credentials (secrets, never commit)
 notify_config.json
