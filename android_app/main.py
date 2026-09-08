@@ -1225,11 +1225,12 @@ class ResellMonitorMobile(App):
         # A. 分类维度选择 (对齐电脑端 898/142/807/175/all)
         cat_scroll = ScrollView(size_hint=(1, None), height=dp(28),
                                 do_scroll_x=True, do_scroll_y=False, bar_width=0)
-        cat_box = BoxLayout(orientation="horizontal", size_hint_x=None, spacing=dp(6))
+        cat_box = BoxLayout(orientation="horizontal", size_hint_x=None, spacing=dp(5),
+                            padding=[0, 0, dp(14), 0])
         cat_box.bind(minimum_width=cat_box.setter("width"))
 
         cat_lbl = Label(text="品类:", font_size=sp(11.5), bold=True, color=CLR_TEXT_MAIN,
-                        size_hint=(None, 1), width=dp(36))
+                        size_hint=(None, 1), width=dp(34))
         cat_box.add_widget(cat_lbl)
 
         self.cat_chip_btns = []
@@ -1243,7 +1244,7 @@ class ResellMonitorMobile(App):
         for name, cid in categories:
             is_active = (self.crawl_category == cid)
             c_btn = ModernButton(
-                text=name, font_size=sp(11), size_hint=(None, 1), width=dp(68),
+                text=name, font_size=sp(10.5), size_hint=(None, 1), width=dp(62),
                 bg_color=CLR_PRIMARY if is_active else CLR_CHIP_BG,
                 text_color=(1, 1, 1, 1) if is_active else CLR_TEXT_SUB,
                 radius=dp(6)
@@ -1558,12 +1559,12 @@ class ResellMonitorMobile(App):
         about_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(about_title)
 
-        ver_lbl = Label(text="版本: v1.5.0 (清新高刷·智能通知版)", font_size=sp(12),
+        ver_lbl = Label(text="版本: v1.5.1 (高可用抗抖动·智能通知版)", font_size=sp(12),
                         color=CLR_PRIMARY, size_hint=(1, None), height=dp(20), halign="left")
         ver_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(ver_lbl)
 
-        sub_lbl = Label(text="全面支持 120Hz 高刷、前后台定时巡检、状态栏通知、图片极速微缓存与清新雅致视觉。",
+        sub_lbl = Label(text="全面支持 120Hz 高刷、前后台定时巡检、状态栏通知、SSL抗抖动自愈与清新雅致视觉。",
                         font_size=sp(10.5), color=CLR_TEXT_MUTED, size_hint=(1, None), height=dp(24), halign="left")
         sub_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(sub_lbl)

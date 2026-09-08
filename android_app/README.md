@@ -1,6 +1,19 @@
-# Android 移动端 (v1.5.0 清新高刷·智能通知版)
+# Android 移动端 (v1.5.1 高可用抗抖动·智能通知版)
 
 基于 Kivy 原生 UI 深度重构的安卓移动端，融合清新纯净现代极简设计（Neo-Nordic），复用 `bili_resell.py` 爬虫核心，纯 Python 实现。
+
+## 🌟 v1.5.1 核心修复与升级
+
+1. **🛡️ 彻底解决真机爬取 SSL 异常 (Hostname Mismatch)**：
+   - 彻底关闭 SSL 主机名校验限制（`verify=False` 与 `urllib3` 告警静音）；
+   - 完美适配 B 站 CDN 泛域名多节点调度机制，彻底杜绝真机爬取至第 15 页或深层翻页时报 `SSLCertVerificationError` 问题。
+2. **🔄 智能连接池自愈与断连重连**：
+   - 会话中加入连接异常自愈侦测（遇到网络波动或 Keep-Alive 超时自动销毁坏连接并重建会话）；
+   - 保证多页大批量抓取与长时间后台巡检平稳运行，绝不死锁。
+3. **📱 手机端窄屏交互精细打磨**：
+   - 优化品类横向滚动条的宽度与内边距，告别边缘截断，支持丝滑横向拖拽。
+
+---
 
 ## 🌟 v1.5.0 核心突破与特性
 
@@ -36,10 +49,10 @@
 
 APK 由 GitHub Actions 云端产出（无需在本机安装 Android SDK/NDK/Docker）：
 
-1. 推送 tag `apk-v1.5.0` 触发自动构建：
+1. 推送 tag `apk-v1.5.1` 触发自动构建：
    ```bash
-   git tag apk-v1.5.0
-   git push origin apk-v1.5.0
+   git tag apk-v1.5.1
+   git push origin apk-v1.5.1
    ```
 2. 或进入 GitHub 仓库 **Actions** 页 → 选择 **Build Android APK** workflow → 点击 **Run workflow** 手动触发。
 3. 构建完成后在该次运行页面的 **Artifacts** 下载 `biliresellmonitor-apk` 安装包。
