@@ -7,7 +7,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,otf,ttf,json,csv
 # 复用根目录的爬虫核心模块
 source.exclude_dirs = build,dist,__pycache__,web,tests
-version = 1.0.0
+version = 1.4.0
 requirements = python3,kivy==2.3.1,requests,urllib3,hostpython3,filetype
 orientation = portrait
 fullscreen = 0
