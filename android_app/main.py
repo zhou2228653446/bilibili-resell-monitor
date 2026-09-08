@@ -12,6 +12,22 @@ import os
 import threading
 import time
 
+# ---- 中文字体注册（必须放在所有其他 kivy 导入之前！）----
+# Kivy 在 kivy.core.text 模块被导入的那一瞬间就从 Config 读取 default_font 并
+# 固化默认字体（kivy/core/text/__init__.py: literal_eval(Config.get(...)) +
+# 模块级 Label.register(DEFAULT_FONT, ...)）。若此块放在 from kivy.core.window
+# import Window 之后，core.text 早已导入完毕，default_font 永远停留在 Roboto，
+# 而 Roboto 不含 CJK 字形、安卓无系统字体回退 → 全部中文渲染成黑框叉。
+# default_font 为 4 元素列表：[name, regular, italic, bold]。
+from kivy.config import Config  # kivy.config 本身不触发 core.text 导入，安全
+
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "NotoSansCJKsc-Regular.otf")
+if os.path.exists(_FONT_PATH):
+    Config.set("kivy", "default_font",
+               repr(["CJK", _FONT_PATH, _FONT_PATH, _FONT_PATH]))
+
+# ---- 字体配置完成，以下才是正常导入 ----
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
@@ -23,23 +39,15 @@ from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
+from kivy.core.text import LabelBase
 
 from android_compat import IS_ANDROID, get_out_path
 import bili_resell
 
-# 注册并全局启用中文字体（打包内 Noto Sans CJK SC，OFL 许可可自由分发）。
-# Kivy 默认 Roboto 不含 CJK 字形，安卓无系统字体回退，缺字会渲染成黑框叉。
-# default_font 格式为 4 元素列表：[name, regular, italic, bold]（见 kivy/config.py）
-from kivy.core.text import LabelBase
-from kivy.config import Config
-
-_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "NotoSansCJKsc-Regular.otf")
+# 显式注册 CJK 名称（default_font 生效时此调用为幂等重复，双保险）
 if os.path.exists(_FONT_PATH):
     LabelBase.register(name="CJK", fn_regular=_FONT_PATH,
                        fn_bold=_FONT_PATH, fn_italic=_FONT_PATH)
-    Config.set("kivy", "default_font",
-               repr(["CJK", _FONT_PATH, _FONT_PATH, _FONT_PATH]))
 
 # 安卓端数据文件路径（桌面调试时与原路径一致）
 JSON_PATH = get_out_path("3c_products.json")
