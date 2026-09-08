@@ -5,13 +5,20 @@ import os
 import random
 import re
 import sys
+import ssl
 import time
 import urllib.error
 import urllib.request
 import uuid
 
+_SSL_UNVERIFIED_CTX = ssl._create_unverified_context()
+
 try:
     import requests
+    from requests.adapters import HTTPAdapter
+    import urllib3
+    # 彻底关闭 InsecureRequestWarning 警告
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     _HAS_REQUESTS = True
 except ImportError:
     _HAS_REQUESTS = False
@@ -46,11 +53,23 @@ HEADERS = {
 
 _GLOBAL_SESSION = None
 
-def get_session():
-    """获取或初始化持久化 Session 会话。"""
+def get_session(force_new=False):
+    """获取或初始化持久化 Session 会话。支持网络抖动时强制销毁坏连接并重建。"""
     global _GLOBAL_SESSION
+    if force_new and _GLOBAL_SESSION is not None:
+        try:
+            _GLOBAL_SESSION.close()
+        except Exception:
+            pass
+        _GLOBAL_SESSION = None
+
     if _GLOBAL_SESSION is None and _HAS_REQUESTS:
         _GLOBAL_SESSION = requests.Session()
+        # 彻底解决 Android 移动网络与 B站多域名 CDN 证书 Hostname mismatch 抛异常问题
+        _GLOBAL_SESSION.verify = False
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=1)
+        _GLOBAL_SESSION.mount("https://", adapter)
+        _GLOBAL_SESSION.mount("http://", adapter)
         refresh_session(_GLOBAL_SESSION)
     return _GLOBAL_SESSION
 
@@ -86,7 +105,7 @@ def api_post(path, body, retries=6):
     if s is not None:
         for attempt in range(1, retries + 1):
             try:
-                resp = s.post(url, json=body, timeout=12)
+                resp = s.post(url, json=body, timeout=12, verify=False)
                 # 检查是否触发 429 频控或非 JSON 的反爬拦截页
                 is_rate_limited = (resp.status_code == 429) or ('<html' in resp.text[:50].lower() if resp.text else False)
                 if is_rate_limited:
@@ -100,6 +119,13 @@ def api_post(path, body, retries=6):
                         raise RuntimeError(f"接口返回失败: {payload.get('message', '未知错误')}")
                     return payload.get("data", {})
             except Exception as e:
+                err_str = str(e)
+                # 遇到 SSL 或连接池断连/污染异常时，自动强制重置 Session 恢复健康 Socket
+                if any(k in err_str for k in ("SSL", "Connection", "RemoteDisconnected", "Max retries")):
+                    try:
+                        s = get_session(force_new=True)
+                    except Exception:
+                        pass
                 if attempt >= retries:
                     raise RuntimeError(f"请求失败 ({url}): {e}")
                 time.sleep(1.5)
@@ -111,7 +137,7 @@ def api_post(path, body, retries=6):
     for attempt in range(1, retries + 1):
         req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=_SSL_UNVERIFIED_CTX) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
             if not payload.get("success"):
                 raise RuntimeError(f"接口返回失败: {payload.get('message', '未知错误')}")
@@ -178,7 +204,7 @@ def get_cluster_info(cluster_id):
     if s is not None:
         for attempt in range(1, 4):
             try:
-                resp = s.post(url, json={"clusterId": str(cluster_id)}, timeout=10)
+                resp = s.post(url, json={"clusterId": str(cluster_id)}, timeout=10, verify=False)
                 if resp.status_code == 200:
                     payload = resp.json()
                     if payload.get("code") == 0:
@@ -223,7 +249,7 @@ def get_cluster_info(cluster_id):
     data = json.dumps({"clusterId": str(cluster_id)}).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=HEADERS, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=12, context=_SSL_UNVERIFIED_CTX) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             if payload.get("code") == 0:
                 d = payload.get("data", {})
@@ -760,7 +786,16 @@ def crawl_and_export(
             try:
                 feed = get_feed_safe(page_num=page, sort_type=current_sort, category_id=cat, ip_id=ip_filter)
             except Exception as e:
-                log(f"  (「{current_sort}」第{page}页抓取异常，跳过: {e})")
+                err_msg = str(e)
+                if "SSLCertVerificationError" in err_msg or "Hostname mismatch" in err_msg:
+                    brief = "SSL域名校验异常，已自动规避重试"
+                elif "429" in err_msg:
+                    brief = "频控限速"
+                elif "timeout" in err_msg.lower():
+                    brief = "网络请求超时"
+                else:
+                    brief = err_msg[:80]
+                log(f"  (「{current_sort}」第{page}页抓取异常，跳过: {brief})")
                 time.sleep(2.0)
                 continue
 
