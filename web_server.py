@@ -335,8 +335,9 @@ def get_latest_data():
             p["discount_rate"] = None
             p["is_super_discount"] = False
 
-    # 6. 从持久化缓存中注入已知的市集最新成交价（仅注入 24 小时内的最新有效数据）
+    # 6. 从持久化缓存中注入已知的市集最新成交价（仅注入 2 小时内的最新有效数据，过期则由前端按需实时拉取）
     now_ts = time.time()
+    DEAL_CACHE_MAX_AGE = 7200  # 2 小时有效期
     with deals_cache_lock:
         for p in products:
             iid = str(p.get("cluster_id"))
@@ -347,13 +348,15 @@ def get_latest_data():
                 if up_str:
                     try:
                         up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
-                        if now_ts - up_ts < 86400:
+                        if now_ts - up_ts < DEAL_CACHE_MAX_AGE:
                             is_fresh = True
                     except Exception:
                         pass
                 p["latest_deal_price"] = entry.get("latest_deal_price") if is_fresh else None
+                p["deal_updated_at"] = up_str if is_fresh else None
             else:
                 p["latest_deal_price"] = None
+                p["deal_updated_at"] = None
 
         for a in alerts:
             iid = str(a.get("cluster_id"))
@@ -364,13 +367,15 @@ def get_latest_data():
                 if up_str:
                     try:
                         up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
-                        if now_ts - up_ts < 86400:
+                        if now_ts - up_ts < DEAL_CACHE_MAX_AGE:
                             is_fresh = True
                     except Exception:
                         pass
                 a["latest_deal_price"] = entry.get("latest_deal_price") if is_fresh else None
+                a["deal_updated_at"] = up_str if is_fresh else None
             else:
                 a["latest_deal_price"] = None
+                a["deal_updated_at"] = None
 
     return {
         "meta": meta,
@@ -682,21 +687,24 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
         result = {}
         missing_ids = []
+        now_ts = time.time()
+        DEAL_CACHE_MAX_AGE = 7200  # 2 小时
         with deals_cache_lock:
             for cid in ids:
                 cid_str = str(cid)
                 cached = deals_cache.get(cid_str)
                 is_fresh = False
                 if cached and cached.get("latest_deal_price"):
-                    result[cid_str] = cached.get("latest_deal_price")
                     up_str = cached.get("updated_at", "")
                     if up_str:
                         try:
                             up_ts = time.mktime(time.strptime(up_str, "%Y-%m-%d %H:%M:%S"))
-                            if time.time() - up_ts < 7200:
+                            if now_ts - up_ts < DEAL_CACHE_MAX_AGE:
                                 is_fresh = True
                         except Exception:
                             pass
+                    if is_fresh:
+                        result[cid_str] = cached.get("latest_deal_price")
                 if not is_fresh:
                     missing_ids.append(cid_str)
 
