@@ -13,7 +13,9 @@ fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE
 android.api = 34
 android.minapi = 24
-android.ndk = 26b
+# p4a v2024.01.21 的 recommendations.py 限定 MIN/MAX_NDK_VERSION = 25，
+# NDK 26b 会在 create 阶段被 check_ndk_version 拒绝
+android.ndk = 25b
 android.archs = arm64-v8a
 android.allow_backup = True
 # CI 无 tty，许可证必须自动接受，否则 build-tools（含 aidl）静默安装失败
