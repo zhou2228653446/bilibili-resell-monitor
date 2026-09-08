@@ -19,6 +19,11 @@ android.allow_backup = True
 # CI 无 tty，许可证必须自动接受，否则 build-tools（含 aidl）静默安装失败
 android.accept_sdk_license = True
 
+# 钉住 python-for-android 版本：p4a master 默认编译 Python 3.14，
+# 而 kivy 2.3.1 的 C 扩展不兼容 3.13/3.14（Py_UNICODE 等 C API 已删），
+# v2024.01.21 是 Python 3.11.5 + Kivy 2.3.1 的官方支持组合。
+p4a.branch = v2024.01.21
+
 [buildozer]
 log_level = 2
 warn_on_root = 1
