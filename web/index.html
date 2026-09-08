@@ -947,6 +947,7 @@
     // 1. 加载主数据
     async function loadData() {
       els.refreshIcon.classList.add('animate-spin');
+      pendingFetchDeals.clear();
       try {
         const res = await fetch('/api/data');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1054,17 +1055,24 @@
       fetchMissingDeals(alerts.slice(0, 15).map(a => a.cluster_id));
     }
 
-    // 异步拉取并刷新未缓存的最新成交价
+    // 异步拉取并刷新未缓存或过期的最新成交价
     let pendingFetchDeals = new Set();
     async function fetchMissingDeals(ids) {
       if (!ids || ids.length === 0) return;
+      const now = Date.now();
       const needed = ids.filter(id => {
-        const prod = allProducts.find(p => p.cluster_id === id);
-        return !prod || !prod.latest_deal_price;
-      }).filter(id => !pendingFetchDeals.has(id));
+        const prod = allProducts.find(p => String(p.cluster_id) === String(id));
+        if (!prod || !prod.latest_deal_price) return true;
+        // 如果已缓存但超过 1 小时，也需要后台异步重新校验更新
+        if (prod.deal_updated_at) {
+          const upTs = new Date(prod.deal_updated_at.replace(' ', 'T')).getTime();
+          if (!isNaN(upTs) && (now - upTs) > 3600 * 1000) return true;
+        }
+        return false;
+      }).filter(id => !pendingFetchDeals.has(String(id)));
 
       if (needed.length === 0) return;
-      needed.forEach(id => pendingFetchDeals.add(id));
+      needed.forEach(id => pendingFetchDeals.add(String(id)));
 
       try {
         const res = await fetch('/api/batch_deals', {
@@ -1074,25 +1082,35 @@
         });
         if (!res.ok) return;
         const dealMap = await res.json();
+        const updatedTime = new Date().toISOString();
 
         for (const [cid, dealPrice] of Object.entries(dealMap)) {
           if (dealPrice) {
-            const p = allProducts.find(x => x.cluster_id === cid);
-            if (p) p.latest_deal_price = dealPrice;
-            const a = alertsData.find(x => x.cluster_id === cid);
-            if (a) a.latest_deal_price = dealPrice;
+            const cidStr = String(cid);
+            const p = allProducts.find(x => String(x.cluster_id) === cidStr);
+            if (p) {
+              p.latest_deal_price = dealPrice;
+              p.deal_updated_at = updatedTime;
+            }
+            const a = alertsData.find(x => String(x.cluster_id) === cidStr);
+            if (a) {
+              a.latest_deal_price = dealPrice;
+              a.deal_updated_at = updatedTime;
+            }
 
             // 更新 DOM 节点
-            const cardEl = document.querySelector(`#card-deal-${cid} .deal-text`);
+            const cardEl = document.querySelector(`#card-deal-${cidStr} .deal-text`);
             if (cardEl) cardEl.textContent = `成交 ${dealPrice}`;
-            const tableEl = document.querySelector(`#table-deal-${cid} .deal-text`);
+            const tableEl = document.querySelector(`#table-deal-${cidStr} .deal-text`);
             if (tableEl) tableEl.textContent = `成交 ${dealPrice}`;
-            const radarEl = document.querySelector(`#radar-deal-${cid} .deal-text`);
+            const radarEl = document.querySelector(`#radar-deal-${cidStr} .deal-text`);
             if (radarEl) radarEl.textContent = `成交 ${dealPrice}`;
           }
         }
       } catch (e) {
         console.error('批量获取成交价失败:', e);
+      } finally {
+        needed.forEach(id => pendingFetchDeals.delete(String(id)));
       }
     }
 
@@ -1512,10 +1530,32 @@
           const attrs = dealData.attributes || [];
           currentDealPoints = chartPoints;
 
-          // 呈现最近一次成交价（位于价格右侧）
+          // 呈现最近一次成交价（位于价格右侧）并同步回流更新主页面所有视图
           if (dealData.latest_deal_price) {
-            document.getElementById('modalLastDealPriceText').textContent = `最近成交: ${dealData.latest_deal_price}`;
+            const realPrice = dealData.latest_deal_price;
+            document.getElementById('modalLastDealPriceText').textContent = `最近成交: ${realPrice}`;
             document.getElementById('modalLastDealPrice').classList.remove('hidden');
+
+            // 关键同步：更新主页面数据源与当前可见的卡片/表格/雷达 DOM
+            const cidStr = String(clusterId);
+            const nowIso = new Date().toISOString();
+            const p = allProducts.find(x => String(x.cluster_id) === cidStr);
+            if (p) {
+              p.latest_deal_price = realPrice;
+              p.deal_updated_at = nowIso;
+            }
+            const a = alertsData.find(x => String(x.cluster_id) === cidStr);
+            if (a) {
+              a.latest_deal_price = realPrice;
+              a.deal_updated_at = nowIso;
+            }
+
+            const cardEl = document.querySelector(`#card-deal-${cidStr} .deal-text`);
+            if (cardEl) cardEl.textContent = `成交 ${realPrice}`;
+            const tableEl = document.querySelector(`#table-deal-${cidStr} .deal-text`);
+            if (tableEl) tableEl.textContent = `成交 ${realPrice}`;
+            const radarEl = document.querySelector(`#radar-deal-${cidStr} .deal-text`);
+            if (radarEl) radarEl.textContent = `成交 ${realPrice}`;
           } else {
             document.getElementById('modalLastDealPrice').classList.add('hidden');
           }
