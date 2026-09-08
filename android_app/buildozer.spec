@@ -7,11 +7,11 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,otf,ttf,json,csv
 # 复用根目录的爬虫核心模块
 source.exclude_dirs = build,dist,__pycache__,web,tests
-version = 1.4.0
+version = 1.5.0
 requirements = python3,kivy==2.3.1,requests,urllib3,hostpython3,filetype
 orientation = portrait
 fullscreen = 0
-android.permissions = INTERNET,ACCESS_NETWORK_STATE
+android.permissions = INTERNET,ACCESS_NETWORK_STATE,POST_NOTIFICATIONS,WAKE_LOCK,FOREGROUND_SERVICE
 android.api = 34
 android.minapi = 24
 # p4a v2024.01.21 的 recommendations.py 限定 MIN/MAX_NDK_VERSION = 25，
