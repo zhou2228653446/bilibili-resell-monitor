@@ -1,6 +1,20 @@
-# Android 移动端 (v1.5.1 高可用抗抖动·智能通知版)
+# Android 移动端 (v1.6.0 二次元视觉焕新版)
 
 基于 Kivy 原生 UI 深度重构的安卓移动端，融合清新纯净现代极简设计（Neo-Nordic），复用 `bili_resell.py` 爬虫核心，纯 Python 实现。
+
+## 🎨 v1.6.0 二次元视觉焕新与无缝转场
+
+1. **✨ 萌系小电视姬官方质感高清 App 图标**：
+   - 采用精致萌系小电视姬（Lucky Chibi）图标，圆角自适应适配 Android 各品牌启动器；
+   - 512x512 高清母版，桌面呈现细腻通透。
+2. **🌸 治愈系 33 娘开屏画卷 (Minimalist 33-chan)**：
+   - 极简治愈风 33 娘（绿叶与小蜗牛）画面，适配各类长宽比手机屏幕（16:9 ~ 20.5:9）；
+   - Android 系统启动原色背景（`#E7E6E4`）无边缝沉浸衔接。
+3. **🎬 首帧预加载与柔和淡出无缝转场**：
+   - 原生开屏向 Kivy 主界面过渡时无闪烁黑屏、无生硬跳变；
+   - 待大盘与商品列表首帧数据渲染完毕后自动以 `out_quad` 曲线柔和淡出，呈现高端工业级质感。
+
+---
 
 ## 🌟 v1.5.1 核心修复与升级
 
@@ -49,10 +63,10 @@
 
 APK 由 GitHub Actions 云端产出（无需在本机安装 Android SDK/NDK/Docker）：
 
-1. 推送 tag `apk-v1.5.1` 触发自动构建：
+1. 推送 tag `apk-v1.6.0` 触发自动构建：
    ```bash
-   git tag apk-v1.5.1
-   git push origin apk-v1.5.1
+   git tag apk-v1.6.0
+   git push origin apk-v1.6.0
    ```
 2. 或进入 GitHub 仓库 **Actions** 页 → 选择 **Build Android APK** workflow → 点击 **Run workflow** 手动触发。
 3. 构建完成后在该次运行页面的 **Artifacts** 下载 `biliresellmonitor-apk` 安装包。
@@ -67,10 +81,12 @@ C:/Users/Administrator/.workbuddy/binaries/python/envs/kivy/Scripts/python.exe a
 
 ## 📁 文件结构
 
-- `main.py` — Kivy 移动端主程序（UI 布局、120Hz 调度、清新配色、交互弹窗、动效）
+- `icon.png` — 萌系小电视姬高清应用图标 (512x512)
+- `presplash.png` — 治愈系 33 娘开屏画卷 (1080x2340, #E7E6E4 沉浸底色)
+- `main.py` — Kivy 移动端主程序（UI 布局、120Hz 调度、清新配色、开屏转场、交互弹窗、动效）
 - `notification_helper.py` — Android 状态栏系统通知助手（NotificationChannel, PendingIntent）
 - `scheduler.py` — 前后台定时自动巡检守护线程与漏品检测
 - `android_compat.py` — 安卓私有目录适配层（兼容桌面调试与手机端运行）
 - `bili_resell.py` — 爬虫核心与市集成交明细解析引擎
-- `buildozer.spec` — 打包配置（v1.5.0，arm64-v8a，minSdk 24，targetSdk 34，通知与保活权限）
+- `buildozer.spec` — 打包配置（v1.6.0，arm64-v8a，minSdk 24，targetSdk 34，二次元图标与开屏）
 - `NotoSansCJKsc-Regular.otf` — 思源黑体字体（确保安卓 CJK 中文完美渲染）
