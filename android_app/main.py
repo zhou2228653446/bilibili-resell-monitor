@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-B站会员购转售监控 - Android 端 (v1.5.0 清新高刷·智能通知版)
+B站会员购转售监控 - Android 端 (v1.6.0 二次元视觉焕新版)
 特性:
-1. 90Hz / 120Hz 高刷新率屏幕自适应调度
-2. B站 CDN 官方缩略图优化 (@180w_180h_1c.png)，体积暴降 96%，彻底根治图片卡顿
-3. 前后台定时自动巡检与状态栏系统通知（支持 15分/30分/1小时/2小时 周期）
-4. Android 系统通知栏推送 (低于成交价/3折好物即时触达)
-5. 全新清新现代雅致配色 (Slate-50 瓷白底、柔粉、薄荷绿、暖金与通透顶栏)
-6. 底部导航栏平滑滑动指示条与全套柔和过渡微动效
+1. 萌系小电视姬高清 App 图标 + 治愈系 33 娘开屏预加载无缝转场
+2. 90Hz / 120Hz 高刷新率屏幕自适应调度
+3. B站 CDN 官方缩略图优化 (@180w_180h_1c.png)，体积暴降 96%，彻底根治图片卡顿
+4. 前后台定时自动巡检与状态栏系统通知（支持 15分/30分/1小时/2小时 周期）
+5. Android 系统通知栏推送 (低于成交价/3折好物即时触达)
+6. 全新清新现代雅致配色 (Slate-50 瓷白底、柔粉、薄荷绿、暖金与通透顶栏)
+7. 底部导航栏平滑滑动指示条与全套柔和过渡微动效
 """
 import json
 import os
@@ -42,7 +43,8 @@ from kivy.uix.modalview import ModalView
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
-from kivy.uix.image import AsyncImage
+from kivy.uix.image import AsyncImage, Image
+from kivy.uix.floatlayout import FloatLayout
 from kivy.animation import Animation
 from kivy.properties import NumericProperty
 from kivy.loader import Loader
@@ -711,11 +713,25 @@ class ModernTabBar(BoxLayout):
 # 应用核心逻辑 (ResellMonitorMobile)
 # =====================================================================
 
+class SplashOverlay(FloatLayout):
+    """全屏开屏画面遮罩，拦截用户在开屏期间的误触点击并在淡出完成后自动销毁"""
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            return True
+        return super().on_touch_down(touch)
+
+
 class ResellMonitorMobile(App):
     title = "B站转售监控"
 
     def build(self):
-        self.root_box = BoxLayout(orientation="vertical")
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        if os.path.exists(icon_path):
+            self.icon = icon_path
+
+        self.main_container = FloatLayout()
+
+        self.root_box = BoxLayout(orientation="vertical", size_hint=(1, 1))
 
         # 顶部全局导航栏 (现代瓷白微透明风格 + 柔粉呼吸胶囊徽标)
         self.header_bar = RoundedBox(orientation="horizontal", size_hint=(1, None), height=dp(50),
@@ -745,6 +761,8 @@ class ResellMonitorMobile(App):
         self.tab_bar = ModernTabBar(self)
         self.root_box.add_widget(self.tab_bar)
 
+        self.main_container.add_widget(self.root_box)
+
         # 状态变量
         self.all_products = []
         self.filtered_products = []
@@ -766,9 +784,38 @@ class ResellMonitorMobile(App):
             on_log_cb=self._append_crawl_log
         )
 
+        # 开屏画面平滑转场（无缝承接 Android 原生 presplash，在首帧列表数据渲染完成后柔和淡出）
+        splash_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presplash.png")
+        if os.path.exists(splash_path):
+            self.splash_overlay = SplashOverlay(size_hint=(1, 1))
+            with self.splash_overlay.canvas.before:
+                Color(0.906, 0.902, 0.894, 1)  # #E7E6E4 统一开屏底色
+                self.splash_bg = RoundedRectangle(size=Window.size, pos=self.splash_overlay.pos, radius=[0])
+            self.splash_overlay.bind(size=self._update_splash_rect, pos=self._update_splash_rect)
+            self.splash_img = Image(source=splash_path, fit_mode="contain", size_hint=(1, 1))
+            self.splash_overlay.add_widget(self.splash_img)
+            self.main_container.add_widget(self.splash_overlay)
+            Clock.schedule_once(self._dismiss_splash, 0.75)
+
         # 启动时加载列表
         Clock.schedule_once(lambda _dt: self.show_list(), 0.1)
-        return self.root_box
+        return self.main_container
+
+    def _update_splash_rect(self, inst, _val):
+        if hasattr(self, 'splash_bg') and self.splash_bg:
+            self.splash_bg.size = inst.size
+            self.splash_bg.pos = inst.pos
+
+    def _dismiss_splash(self, _dt):
+        if hasattr(self, 'splash_overlay') and self.splash_overlay:
+            anim = Animation(opacity=0, duration=0.45, t='out_quad')
+            def _on_finish(*_args):
+                if hasattr(self, 'splash_overlay') and self.splash_overlay:
+                    if self.splash_overlay.parent:
+                        self.main_container.remove_widget(self.splash_overlay)
+                    self.splash_overlay = None
+            anim.bind(on_complete=_on_finish)
+            anim.start(self.splash_overlay)
 
     def on_start(self):
         """应用启动后尝试设置 Android 原生 120Hz 高刷新率调度与通知权限。"""
@@ -1559,12 +1606,12 @@ class ResellMonitorMobile(App):
         about_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(about_title)
 
-        ver_lbl = Label(text="版本: v1.5.1 (高可用抗抖动·智能通知版)", font_size=sp(12),
+        ver_lbl = Label(text="版本: v1.6.0 (二次元视觉焕新版)", font_size=sp(12),
                         color=CLR_PRIMARY, size_hint=(1, None), height=dp(20), halign="left")
         ver_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(ver_lbl)
 
-        sub_lbl = Label(text="全面支持 120Hz 高刷、前后台定时巡检、状态栏通知、SSL抗抖动自愈与清新雅致视觉。",
+        sub_lbl = Label(text="萌系小电视姬图标、33娘治愈系开屏、无缝平滑转场、120Hz高刷与状态栏智能巡检通知。",
                         font_size=sp(10.5), color=CLR_TEXT_MUTED, size_hint=(1, None), height=dp(24), halign="left")
         sub_lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
         about_card.add_widget(sub_lbl)
@@ -1583,7 +1630,7 @@ class ResellMonitorMobile(App):
             err = None
             try:
                 url = f"http://{ip_port}/3c_products.json"
-                req = urllib.request.Request(url, headers={"User-Agent": "BiliResellAndroid/1.5"})
+                req = urllib.request.Request(url, headers={"User-Agent": "BiliResellAndroid/1.6"})
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = resp.read()
                 with open(JSON_PATH, "wb") as f:
