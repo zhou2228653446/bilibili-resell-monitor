@@ -67,6 +67,17 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
     }
+    /* 渐进式图片加载：占位图先模糊放大铺满，高清图到达后淡入还原。
+       这样首屏立刻有内容、不白屏，且高清替换时无跳动。 */
+    .prog-img {
+      filter: blur(6px);
+      transform: scale(1.04);
+      transition: filter .35s ease, transform .35s ease, opacity .35s ease;
+    }
+    .prog-img.prog-done {
+      filter: none;
+      transform: none;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-[#0f1117] dark:text-slate-100 min-h-screen transition-colors duration-200 custom-scroll">
@@ -100,6 +111,12 @@
         <button id="openScheduleModalBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
           <span class="w-2 h-2 rounded-full bg-slate-400" id="scheduleStatusDot"></span>
           <span id="scheduleBtnText">定时巡检: 关</span>
+        </button>
+
+        <!-- 图片本地缓存管理按钮 -->
+        <button id="openImgCacheModalBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <i data-lucide="image" class="w-3.5 h-3.5 text-sky-500"></i>
+          <span id="imgCacheBtnText">图片缓存</span>
         </button>
 
         <button id="themeToggleBtn" class="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition">
@@ -795,6 +812,69 @@
     </div>
   </div>
 
+  <!-- 模态框 5: 商品图片本地缓存管理 -->
+  <div id="imgCacheModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-500 flex items-center justify-center text-white shadow-md shadow-sky-500/25">
+            <i data-lucide="image" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-base text-slate-900 dark:text-white">商品图片本地缓存</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">图片归档到本地磁盘，避免 B站 CDN 换图导致看板裂图</p>
+          </div>
+        </div>
+        <button id="closeImgCacheModalBtn" class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- 统计卡片 -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#12141c] border border-slate-200/80 dark:border-slate-800">
+          <div class="text-[11px] text-slate-400 font-semibold">已缓存图片</div>
+          <div id="imgCacheCount" class="text-lg font-black text-slate-900 dark:text-white">--</div>
+        </div>
+        <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#12141c] border border-slate-200/80 dark:border-slate-800">
+          <div class="text-[11px] text-slate-400 font-semibold">磁盘占用</div>
+          <div id="imgCacheSize" class="text-lg font-black text-sky-600 dark:text-sky-400">--</div>
+        </div>
+        <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#12141c] border border-slate-200/80 dark:border-slate-800">
+          <div class="text-[11px] text-slate-400 font-semibold">命中 / 未命中</div>
+          <div id="imgCacheHits" class="text-lg font-black text-emerald-600 dark:text-emerald-400">--</div>
+        </div>
+        <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#12141c] border border-slate-200/80 dark:border-slate-800">
+          <div class="text-[11px] text-slate-400 font-semibold">累计入网</div>
+          <div id="imgCacheBytes" class="text-lg font-black text-amber-600 dark:text-amber-400">--</div>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-2xl bg-sky-50/60 dark:bg-sky-950/20 border border-sky-200/60 dark:border-sky-900/40 space-y-1.5">
+        <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+          <i data-lucide="info" class="w-3.5 h-3.5 text-sky-500"></i>
+          <span>归档说明</span>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          每次抓取完成后会自动把新商品的图片归档到本地（已缓存的自动跳过，不产生流量）。
+          图片以 B站 CDN 缩略图形式存储，单张约 5~20KB。
+        </p>
+        <p id="imgCacheMeta" class="text-[11px] text-slate-400 font-mono break-all">目录: --</p>
+      </div>
+
+      <div class="flex items-center space-x-2 pt-1">
+        <button id="imgCacheRefreshBtn" class="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center space-x-1">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          <span>刷新统计</span>
+        </button>
+        <button id="imgCachePrefetchBtn" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-500 hover:opacity-95 text-white text-xs font-bold shadow-md shadow-sky-500/25 transition">
+          立即全量归档
+        </button>
+      </div>
+      <p id="imgCacheMsg" class="text-[11px] text-center text-slate-500 dark:text-slate-400 hidden"></p>
+    </div>
+  </div>
+
   <!-- JavaScript 核心业务逻辑 -->
   <script>
     // 全局状态
@@ -908,6 +988,18 @@
       notifyBelowThreeDiscountToggle: document.getElementById('notifyBelowThreeDiscountToggle'),
       testNotifyBtn: document.getElementById('testNotifyBtn'),
       saveNotifyBtn: document.getElementById('saveNotifyBtn'),
+      // 图片缓存管理
+      openImgCacheModalBtn: document.getElementById('openImgCacheModalBtn'),
+      closeImgCacheModalBtn: document.getElementById('closeImgCacheModalBtn'),
+      imgCacheModal: document.getElementById('imgCacheModal'),
+      imgCacheCount: document.getElementById('imgCacheCount'),
+      imgCacheSize: document.getElementById('imgCacheSize'),
+      imgCacheHits: document.getElementById('imgCacheHits'),
+      imgCacheBytes: document.getElementById('imgCacheBytes'),
+      imgCacheMeta: document.getElementById('imgCacheMeta'),
+      imgCacheRefreshBtn: document.getElementById('imgCacheRefreshBtn'),
+      imgCachePrefetchBtn: document.getElementById('imgCachePrefetchBtn'),
+      imgCacheMsg: document.getElementById('imgCacheMsg'),
       toastContainer: document.getElementById('toastContainer'),
     };
 
@@ -942,6 +1034,52 @@
     function fmtPrice(v) {
       if (v === null || v === undefined || isNaN(v)) return '¥--';
       return `¥${Number(v).toFixed(2)}`;
+    }
+
+    // 商品图片统一走服务端本地缓存（/api/img）：
+    //   1) 服务器磁盘缓存优先，未命中才回源并落盘，同一张图只下载一次；
+    //   2) 服务端补齐 Referer/UA，规避 B站 CDN 的防盗链导致的裂图；
+    //   3) 返回长 Cache-Control，浏览器二次访问不再请求服务器，省流量。
+    //
+    // size 档位（服务端 _SIZE_SUFFIX 定义，同一原图按档位分别缓存）：
+    //   place = @120w  约 2~3KB   先铺满格子，避免白屏和布局跳动
+    //   mid   = @240w  约 5KB     列表小图
+    //   hi    = @480w  约 13KB    卡片/表格图（默认）
+    //   big   = @800w  约 24KB    弹窗大图
+    const FALLBACK_IMG = 'https://i0.hdslb.com/bfs/mall/mall/default.png';
+    function imgSrc(url, size) {
+      if (!url) return FALLBACK_IMG;
+      const base = `/api/img?url=${encodeURIComponent(url)}`;
+      return size ? `${base}&size=${size}` : base;
+    }
+    // 占位图也走缓存接口，避免外链失效
+    const FALLBACK_IMG_PROXIED = imgSrc(FALLBACK_IMG);
+
+    // 渐进式加载：先用 2KB 占位图秒铺满格子，再用高清图替换。
+    // 服务端两档都已预取，所以占位图几乎瞬时；高清图到达后淡入，不闪白。
+    // 用 dataset.progressive 标记，避免重复挂事件导致循环触发。
+    function progressiveAttrs(url, size, extraClass) {
+      const place = imgSrc(url, 'place');
+      const hi = imgSrc(url, size || 'hi');
+      const cls = extraClass ? ` ${extraClass}` : '';
+      return `src="${place}" data-hd="${hi}" data-prog="1" ` +
+             `onload="hdSwap(this)" onerror="this.onerror=null;this.src='${FALLBACK_IMG_PROXIED}'"` +
+             `class="prog-img${cls}"`;
+    }
+
+    // 高清图加载完后替换；用淡入过渡避免突变感
+    function hdSwap(img) {
+      if (!img.dataset || img.dataset.prog !== '1') return;
+      // 占位图刚 onload 时才去拉高清，保证顺序
+      if (img.src === img.dataset.hd) return;
+      img.dataset.prog = '2';
+      const hd = new Image();
+      hd.onload = () => {
+        img.src = hd.src;          // 已被浏览器缓存，切换是瞬时的
+        img.classList.add('prog-done');
+      };
+      hd.onerror = () => { /* 高清失败就保留占位图，不裂图 */ };
+      hd.src = img.dataset.hd;
     }
 
     // 1. 加载主数据
@@ -1020,7 +1158,7 @@
         <div class="flex-shrink-0 w-64 bg-white dark:bg-[#181a24] p-3 rounded-2xl border ${isSuper ? 'border-amber-200 dark:border-amber-900/50' : 'border-rose-100 dark:border-rose-900/40'} shadow-sm hover:shadow-md transition group flex flex-col justify-between">
           <div>
             <div class="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 mb-2.5">
-              <img src="${a.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" alt="${a.title}" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.src='https://i0.hdslb.com/bfs/mall/mall/default.png'" />
+              <img ${progressiveAttrs(a.img, 'hi', 'w-full h-full object-cover group-hover:scale-105 transition duration-300')} alt="${a.title}" referrerpolicy="no-referrer" loading="lazy" />
               ${badgeHtml}
             </div>
             <h4 class="font-bold text-xs text-slate-900 dark:text-white line-clamp-2 leading-tight mb-1.5" title="${a.title}">
@@ -1299,7 +1437,7 @@
             <div class="bg-white dark:bg-[#181a24] rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all duration-200 group flex flex-col justify-between overflow-hidden">
               <div>
                 <div class="relative w-full aspect-square bg-slate-100 dark:bg-slate-900 overflow-hidden">
-                  <img src="${p.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" alt="${p.title}" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.src='https://i0.hdslb.com/bfs/mall/mall/default.png'" />
+                  <img ${progressiveAttrs(p.img, 'hi', 'w-full h-full object-cover group-hover:scale-105 transition duration-300')} alt="${p.title}" referrerpolicy="no-referrer" loading="lazy" />
                   <div class="absolute top-2 left-2 flex flex-col space-y-1">
                     ${deltaBadge}
                   </div>
@@ -1355,7 +1493,7 @@
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
               <td class="py-3 px-4">
                 <div class="flex items-center space-x-3">
-                  <img src="${p.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png'}" referrerpolicy="no-referrer" class="w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-slate-800" loading="lazy" />
+                  <img ${progressiveAttrs(p.img, 'mid', 'w-10 h-10 rounded-lg object-cover bg-slate-100 dark:bg-slate-800')} referrerpolicy="no-referrer" loading="lazy" />
                   <div class="max-w-xs sm:max-w-md">
                     <div class="font-bold text-slate-900 dark:text-white line-clamp-1" title="${p.title}">${p.title}</div>
                     <div class="text-[11px] text-slate-400 font-mono">ID: ${p.cluster_id}</div>
@@ -1483,7 +1621,18 @@
 
     window.openHistoryModal = async function(clusterId) {
       const prod = allProducts.find(p => p.cluster_id === clusterId) || {};
-      els.modalImg.src = prod.img || 'https://i0.hdslb.com/bfs/mall/mall/default.png';
+      // 弹窗大图同样渐进加载：先 2KB 占位，再换 800w 高清
+      els.modalImg.classList.remove('prog-done');
+      els.modalImg.onerror = function () { this.onerror = null; this.src = FALLBACK_IMG_PROXIED; };
+      if (prod.img && prod.img.indexOf('http') === 0) {
+        els.modalImg.src = imgSrc(prod.img, 'place');
+        const hd = new Image();
+        hd.onload = () => { els.modalImg.src = hd.src; els.modalImg.classList.add('prog-done'); };
+        hd.onerror = () => { els.modalImg.classList.add('prog-done'); };
+        hd.src = imgSrc(prod.img, 'big');
+      } else {
+        els.modalImg.src = FALLBACK_IMG_PROXIED;
+      }
       els.modalTitle.textContent = prod.title || '商品价格走势';
       els.modalCurPrice.textContent = prod.price || '¥--';
       els.modalRefPrice.textContent = prod.reference_price ? `原价: ${prod.reference_price}` : '';
@@ -1725,7 +1874,7 @@
       container.innerHTML = deals.map(d => `
         <div class="py-2.5 px-3 flex items-center justify-between hover:bg-slate-100/60 dark:hover:bg-slate-800/40 transition">
           <div class="flex items-center space-x-2.5">
-            <img src="${d.userAvatar || 'https://i0.hdslb.com/bfs/face/member/noface.jpg'}" referrerpolicy="no-referrer" class="w-8 h-8 rounded-full object-cover bg-slate-200 dark:bg-slate-700" />
+            <img ${progressiveAttrs(d.userAvatar || 'https://i0.hdslb.com/bfs/face/member/noface.jpg', 'mid', 'w-8 h-8 rounded-full object-cover bg-slate-200 dark:bg-slate-700')} referrerpolicy="no-referrer" />
             <div>
               <div class="font-bold text-xs text-slate-800 dark:text-slate-200">${d.userName || '匿名买家'}</div>
               <div class="text-[11px] text-slate-400">${d.dealTime || '近期'}</div>
@@ -2213,10 +2362,69 @@
       }
     });
 
+    // ==================== 图片本地缓存管理 ====================
+    async function loadImgCacheStat() {
+      try {
+        const res = await fetch('/api/imgcache/stat');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const st = await res.json();
+        els.imgCacheCount.textContent = st.count ?? '--';
+        els.imgCacheSize.textContent = `${st.mb ?? 0} MB`;
+        els.imgCacheHits.textContent = `${st.hit ?? 0} / ${st.miss ?? 0}`;
+        els.imgCacheBytes.textContent = `${((st.bytes_in || 0) / 1024 / 1024).toFixed(1)} MB`;
+        els.imgCacheMeta.textContent = `目录: ${st.dir || '--'}  上限: ${st.max_mb || '--'} MB  自动归档: ${st.auto_prefetch ? '已开启' : '已关闭'}`;
+      } catch (err) {
+        els.imgCacheMeta.textContent = '读取缓存统计失败: ' + err.message;
+      }
+    }
+
+    if (els.openImgCacheModalBtn) {
+      els.openImgCacheModalBtn.addEventListener('click', () => {
+        els.imgCacheModal.classList.remove('hidden');
+        els.imgCacheModal.classList.add('flex');
+        loadImgCacheStat();
+      });
+    }
+
+    if (els.closeImgCacheModalBtn) {
+      els.closeImgCacheModalBtn.addEventListener('click', () => {
+        els.imgCacheModal.classList.add('hidden');
+        els.imgCacheModal.classList.remove('flex');
+      });
+    }
+
+    if (els.imgCacheModal) {
+      els.imgCacheModal.addEventListener('click', (e) => {
+        if (e.target === els.imgCacheModal) {
+          els.imgCacheModal.classList.add('hidden');
+          els.imgCacheModal.classList.remove('flex');
+        }
+      });
+    }
+
+    if (els.imgCacheRefreshBtn) {
+      els.imgCacheRefreshBtn.addEventListener('click', loadImgCacheStat);
+    }
+
+    if (els.imgCachePrefetchBtn) {
+      els.imgCachePrefetchBtn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/imgcache/prefetch', { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          showToast('图片归档已启动', '后台正在下载未缓存的新商品图片，已缓存的会自动跳过', 'success');
+          setTimeout(loadImgCacheStat, 3000);
+        } catch (err) {
+          showToast('启动归档失败', err.message, 'error');
+        }
+      });
+    }
+
     // 初始加载
     loadData();
     loadScheduleConfig();
     loadNotifyConfig();
+    loadImgCacheStat();
     startGlobalWatcher();
   </script>
 </body>
