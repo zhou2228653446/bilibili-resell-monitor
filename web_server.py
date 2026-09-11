@@ -11,6 +11,7 @@ B站会员购转售数据看板 Web 服务器
 
 import argparse
 import csv
+import gzip
 import http.server
 import json
 import os
@@ -23,6 +24,10 @@ import time
 import urllib.parse
 import urllib.request
 import webbrowser
+
+# JSON 响应 gzip 压缩配置
+_GZIP_MIN_BYTES = 4096   # 小于该体积不压缩（压缩收益不足）
+_GZIP_LEVEL = 6          # 压缩等级，6 是速度/体积的常用折中
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -50,6 +55,21 @@ HISTORY_PATH = os.path.join(BASE_DIR, "3c_products_history.csv")
 DEALS_CACHE_PATH = os.path.join(BASE_DIR, "deals_cache.json")
 SCRIPT_PATH = os.path.join(BASE_DIR, "bili_resell.py")
 
+# 商品图片本地缓存目录（内容寻址 + 缩略图牵引 + LRU 淘汰）
+IMG_CACHE_DIR = os.environ.get("IMG_CACHE_DIR", os.path.join(BASE_DIR, "cache", "img"))
+# 缓存容量上限（MB），默认 512MB
+try:
+    IMG_CACHE_MAX_MB = int(os.environ.get("IMG_CACHE_MAX_MB", "512"))
+except ValueError:
+    IMG_CACHE_MAX_MB = 512
+# 抓取后是否自动归档图片；设为 0 可关闭
+IMG_AUTO_PREFETCH = os.environ.get("IMG_AUTO_PREFETCH", "1") not in ("0", "false", "False")
+# 图片下载限速间隔（秒/张），保护服务器带宽
+try:
+    IMG_FETCH_INTERVAL = float(os.environ.get("IMG_FETCH_INTERVAL", "0.15"))
+except ValueError:
+    IMG_FETCH_INTERVAL = 0.15
+
 # 引入 bili_resell 核心抓取与成交查询模块
 try:
     import bili_resell
@@ -63,6 +83,20 @@ try:
     import notifier
 except Exception:
     notifier = None
+
+# 引入图片缓存模块
+try:
+    from image_cache import ImageCache, extract_img_urls
+    _img_cache = ImageCache(
+        IMG_CACHE_DIR,
+        max_size_mb=IMG_CACHE_MAX_MB,
+        min_interval=IMG_FETCH_INTERVAL,
+    )
+except Exception as _ic_err:
+    ImageCache = None
+    extract_img_urls = None
+    _img_cache = None
+    print(f"[Warn] 图片缓存模块未就绪: {_ic_err}", file=sys.stderr)
 
 # 市集成交数据持久化缓存管理
 deals_cache_lock = threading.Lock()
@@ -106,6 +140,15 @@ schedule_state = {
     "last_run": None,
     "next_run": None,
     "_next_run_ts": 0,
+}
+
+
+# 图片归档任务状态
+img_prefetch_lock = threading.Lock()
+img_prefetch_state = {
+    "running": False,
+    "finished_at": None,
+    "last_result": None,
 }
 
 
@@ -504,6 +547,23 @@ def run_crawl_thread(category="898", sort="mostListings", pages=None):
                 notifier.process_and_send_alerts(alerts, total_items_count=total)
             except Exception as notify_err:
                 print(f"[Warn] 自动推送捡漏消息异常: {notify_err}", file=sys.stderr)
+
+        # 抓取成功后归档商品图片（仅下载未缓存的新商品图，已缓存零流量）
+        if return_code == 0 and IMG_AUTO_PREFETCH and _img_cache is not None:
+            try:
+                latest_data = get_latest_data()
+                urls = extract_img_urls(latest_data)
+                if urls:
+                    log_fn(f"[ImageCache] 开始归档商品图片，共发现 {len(urls)} 个图片地址")
+                    res = _img_cache.prefetch_many(urls, size="hi", log_every=100)
+                    log_fn(f"[ImageCache] 高清档归档完成: 新下载 {res['ok']} 张 / "
+                           f"失败 {res['fail']} 张 / 命中缓存跳过 {res['skipped']} 张 / "
+                           f"本次入网 {res['bytes_in'] / 1024 / 1024:.2f} MB")
+                    res_place = _img_cache.prefetch_many(urls, size="place", log_every=100)
+                    log_fn(f"[ImageCache] 占位档归档完成: 新下载 {res_place['ok']} 张 / "
+                           f"失败 {res_place['fail']} 张")
+            except Exception as img_err:
+                print(f"[Warn] 图片归档异常: {img_err}", file=sys.stderr)
     except Exception as e:
         with crawl_lock:
             crawl_state["exit_code"] = -1
@@ -540,10 +600,13 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_get_schedule()
         elif path == "/api/notify/config":
             self.handle_api_get_notify_config()
+        elif path == "/api/imgcache/stat":
+            self.handle_api_imgcache_stat()
         elif path == "/api/img":
             qs = urllib.parse.parse_qs(parsed.query)
             img_url = qs.get("url", [""])[0]
-            self.handle_api_img_proxy(img_url)
+            img_size = qs.get("size", [None])[0]
+            self.handle_api_img_proxy(img_url, img_size)
         elif path == "/favicon.ico":
             favicon_path = os.path.join(WEB_DIR, "favicon.ico")
             if os.path.exists(favicon_path):
@@ -583,6 +646,10 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_api_set_notify_config()
         elif path == "/api/notify/test":
             self.handle_api_notify_test()
+        elif path == "/api/imgcache/prefetch":
+            self.handle_api_imgcache_prefetch()
+        elif path == "/api/imgcache/clear":
+            self.handle_api_imgcache_clear()
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -787,11 +854,108 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_json(400, {"error": msg})
 
-    def handle_api_img_proxy(self, img_url):
-        """代理加载 B站 图片，避免客户端因 Referer 策略加载失败。"""
+    def handle_api_imgcache_stat(self):
+        """查询图片缓存占用与命中统计。"""
+        if _img_cache is None:
+            self.send_json(500, {"error": "图片缓存模块未就绪"})
+            return
+        st = _img_cache.stat()
+        st["enabled"] = True
+        st["auto_prefetch"] = IMG_AUTO_PREFETCH
+        st["dir"] = IMG_CACHE_DIR
+        self.send_json(200, st)
+
+    def handle_api_imgcache_prefetch(self):
+        """
+        手动触发全量图片归档（后台线程，不阻塞请求）。
+
+        渐进式加载需要两档都备好：先发占位图（@120w，2~3KB）铺满格子，
+        再换高清图（@480w）。两档都预取，用户首次访问才能即点即显。
+        """
+        if _img_cache is None:
+            self.send_json(500, {"error": "图片缓存模块未就绪"})
+            return
+        with img_prefetch_lock:
+            if img_prefetch_state["running"]:
+                self.send_json(409, {"error": "图片归档任务正在执行中"})
+                return
+            img_prefetch_state["running"] = True
+            img_prefetch_state["last_result"] = None
+
+        def _worker():
+            try:
+                data = get_latest_data()
+                urls = extract_img_urls(data)
+                # 先高清档（driving 主链路），再占位档（首屏立刻可用）
+                res = _img_cache.prefetch_many(urls, size="hi", log_every=100)
+                res_place = _img_cache.prefetch_many(urls, size="place", log_every=100)
+                res["place_ok"] = res_place.get("ok", 0)
+                res["place_fail"] = res_place.get("fail", 0)
+                with img_prefetch_lock:
+                    img_prefetch_state["last_result"] = res
+            except Exception as e:
+                print(f"[Warn] 手动图片归档异常: {e}", file=sys.stderr)
+                with img_prefetch_lock:
+                    img_prefetch_state["last_result"] = {"error": str(e)}
+            finally:
+                with img_prefetch_lock:
+                    img_prefetch_state["running"] = False
+                    img_prefetch_state["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        threading.Thread(target=_worker, daemon=True).start()
+        self.send_json(200, {"message": "图片归档任务已启动"})
+
+    def handle_api_imgcache_clear(self):
+        """清空本地图片缓存。"""
+        if _img_cache is None:
+            self.send_json(500, {"error": "图片缓存模块未就绪"})
+            return
+        ok = _img_cache.clear()
+        if ok:
+            self.send_json(200, {"success": True, "message": "图片缓存已清空"})
+        else:
+            self.send_json(500, {"error": "清空图片缓存失败"})
+
+    def handle_api_img_proxy(self, img_url, img_size=None):
+        """
+        商品图片服务：本地磁盘缓存优先，未命中才回源 B站 CDN 并落盘。
+
+        配合前端 referrerpolicy 限制与 CDN 对 Referer 的校验，本接口统一补齐
+        Referer/UA 后回源，并把下载到的图片以长 Cache-Control 返回给浏览器，
+        使得同一张图的二次访问完全不落到服务器上。
+
+        :param img_size: 尺寸档位（place/mid/hi/big）。
+            前端「先低清占位、再加载高清」的渐进式加载依赖它——
+            同一张原图按不同档位分别缓存，互不覆盖。
+        """
         if not img_url or not img_url.startswith("http"):
             self.send_error(400, "Invalid image URL")
             return
+
+        if img_size not in (None, "", "place", "mid", "hi", "big"):
+            self.send_error(400, "Invalid image size")
+            return
+        if img_size == "":
+            img_size = None
+
+        # 1. 优先读本地缓存：0 出网、0 上游请求
+        if _img_cache is not None:
+            data, content_type, _path = _img_cache.get(img_url, size=img_size)
+            if data is not None:
+                self._send_image_bytes(data, content_type, cached=True)
+                return
+
+        # 2. 回源下载并落盘（缓存模块内自带缩略图牵引与限速）
+        if _img_cache is not None:
+            try:
+                data, content_type = _img_cache.fetch_and_store(img_url, size=img_size)
+                if data is not None:
+                    self._send_image_bytes(data, content_type, cached=True)
+                    return
+            except Exception as e:
+                print(f"[Warn] 图片缓存回源异常: {e}", file=sys.stderr)
+
+        # 3. 缓存模块不可用时的兜底：直接透传（不落盘）
         try:
             req = urllib.request.Request(
                 img_url,
@@ -803,15 +967,25 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 content_type = resp.headers.get("Content-Type", "image/png")
                 img_bytes = resp.read()
-                self.send_response(200)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Cache-Control", "public, max-age=86400")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Content-Length", str(len(img_bytes)))
-                self.end_headers()
-                self.wfile.write(img_bytes)
+            self._send_image_bytes(img_bytes, content_type, cached=False)
         except Exception as e:
             self.send_error(502, f"Proxy failed: {e}")
+
+    def _send_image_bytes(self, img_bytes, content_type, cached=True):
+        """统一输出图片响应，带浏览器长缓存以减少服务器流量。"""
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type or "image/webp")
+            # 图片 URL 内容寻址、基本不变，长缓存让二次访问彻底不再打服务器
+            self.send_header("Cache-Control", "public, max-age=604800, immutable")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("X-Img-Cache", "HIT" if cached else "MISS")
+            self.send_header("Content-Length", str(len(img_bytes)))
+            self.end_headers()
+            self.wfile.write(img_bytes)
+        except (BrokenPipeError, ConnectionResetError):
+            # 浏览器提前断开（切换页面/快速滚动）属正常现象，忽略
+            pass
 
     def handle_api_crawl_status(self):
         with crawl_lock:
@@ -850,12 +1024,30 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_json(self, status_code, data):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        # 大响应体启用 gzip：/api/data 未压缩约 400KB，压缩后约 60KB，
+        # 在 4Mbps 上行带宽下可把传输时间从 ~1.5s 压到 ~0.2s。
+        # 注意：本方法同时用于 HEAD 请求，此时只需头部、不能写 body。
+        is_head = (self.command == "HEAD") if getattr(self, "command", None) else False
+        encoding = None
+        if not is_head and len(payload) >= _GZIP_MIN_BYTES:
+            accept = self.headers.get("Accept-Encoding", "") or ""
+            if "gzip" in accept.lower():
+                compressed = gzip.compress(payload, _GZIP_LEVEL)
+                # 仅在确实压小了才用，避免小数据反而变大
+                if len(compressed) < len(payload):
+                    payload = compressed
+                    encoding = "gzip"
+
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        if not is_head:
+            self.wfile.write(payload)
 
     def log_message(self, format, *args):
         # 过滤高频轮询的抓取状态日志

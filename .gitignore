@@ -31,3 +31,6 @@ crash_log.txt
 
 # Local notification credentials (secrets, never commit)
 notify_config.json
+
+# 商品图片本地缓存（运行时自动生成，体积随商品数增长，不入库）
+cache/

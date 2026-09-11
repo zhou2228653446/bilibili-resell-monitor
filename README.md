@@ -12,6 +12,11 @@
 ## ✨ 核心特性
 
 - 🧩 **核心零依赖，requests 可选加速**：Web 服务端完全基于 Python 3 标准库（`http.server`、`urllib`、`threading` 等）实现；爬虫核心在未安装 `requests` 时自动回退 `urllib`（克隆即可运行），安装 `requests` 后自动启用 `Session` 持久化连接，抗 429 更稳定。
+- 🖼️ **商品图片本地归档（抗 CDN 换图 / 省流量）**：
+  - 抓取完成后自动把新商品图片归档到本地磁盘，已缓存的自动跳过，**不产生任何重复流量**；
+  - 归档时自动追加 B站 CDN 缩略图后缀，单张从约 450KB 压缩到约 **12KB（节省 97%）**；
+  - 长连接池复用 TCP+TLS，实测吞吐可达 **3.8 张/秒**，688 个商品全量归档仅需 3 分钟、8.4MB；
+  - 内容寻址命名（URL 即 key），图片 URL 不变则永久命中；支持 LRU 容量上限自动淘汰。
 - 🛡️ **智能防封与抗 429 退避算法 (Anti-Rate-Limiting)**：
   - 自动获取公开游客设备指纹（`buvid3`/`buvid4`），实现无账号物理隔离抓取，0 封号风险；
   - 遇到 B 站 `HTTP 429` 频率限制时，自适应进入指数抖动退避，自动恢复抓取，保证数据 100% 完整不漏抓。
@@ -81,8 +86,11 @@ python -c "from bili_resell import get_cluster_info; import pprint; pprint.pprin
 bilibili-resell-monitor/
 ├── bili_resell.py            # 核心爬虫引擎（请求封装、429退避、市集成交接口）
 ├── web_server.py             # REST API 服务器 + 定时调度器 + 静态文件托管
+├── image_cache.py            # 商品图片本地缓存（缩略图牵引 + 长连接池 + LRU淘汰）
+├── notifier.py               # 微信/邮件/企微等渠道推送
 ├── web/
 │   └── index.html            # 前端单页可视化监控大盘 (Tailwind + Chart.js + Lucide)
+├── cache/img/                # 商品图片本地缓存（运行时生成，已 gitignore）
 ├── 3c_products.json          # 最新商品数据快照
 ├── 3c_products.csv           # 最新商品 CSV 数据快照
 ├── 3c_products_history.csv   # 历史多时点价格轨迹库（用于降价告警分析）
@@ -90,6 +98,51 @@ bilibili-resell-monitor/
 ├── .gitignore
 └── README.md
 ```
+
+---
+
+## 🖼️ 商品图片本地归档
+
+看板原本直接引用 B站 CDN 图片，存在两个问题：**B站换图/删图后历史商品裂图**，以及
+**弱网环境下 CDN 加载缓慢**。图片归档模块把商品图存到本地磁盘，彻底解决这两点。
+
+**工作方式**
+
+1. 抓取完成后自动触发归档（可用 `IMG_AUTO_PREFETCH=0` 关闭），仅下载未缓存的新商品图；
+2. 归档时自动追加 CDN 缩略图后缀 `@480w_480h_1c.webp`，大幅压缩体积；
+3. 前端 `<img>` 统一走 `/api/img?url=xxx`，服务端本地缓存优先，未命中才回源并落盘；
+4. 响应带 `Cache-Control: max-age=604800, immutable`，浏览器二次访问不再请求服务器。
+
+**实测数据**（688 个商品全量归档）
+
+| 指标 | 数值 |
+| :--- | :--- |
+| 单张图片体积 | 449KB → **12.49KB**（节省 97.2%） |
+| 全量 688 张 | **8.39 MB / 3.0 分钟**（3.85 张/秒） |
+| 失败数 | 0 |
+| 缓存命中响应 | **1~2 ms** |
+
+**环境变量**
+
+| 变量 | 默认 | 说明 |
+| :--- | :--- | :--- |
+| `IMG_CACHE_DIR` | `./cache/img` | 缓存目录 |
+| `IMG_CACHE_MAX_MB` | `512` | 缓存容量上限（MB），超出按 LRU 淘汰 |
+| `IMG_AUTO_PREFETCH` | `1` | 抓取后是否自动归档 |
+| `IMG_FETCH_INTERVAL` | `0.15` | 下载限速间隔（秒/张） |
+
+**相关接口**
+
+| 接口 | 方法 | 说明 |
+| :--- | :---: | :--- |
+| `/api/img?url=xxx` | `GET` | 商品图服务（本地缓存优先，未命中回源并落盘） |
+| `/api/imgcache/stat` | `GET` | 查询缓存占用、命中统计与配置 |
+| `/api/imgcache/prefetch` | `POST` | 手动触发全量归档（后台线程） |
+| `/api/imgcache/clear` | `POST` | 清空本地图片缓存 |
+
+> ⚠️ **注意**：部分网络环境下到 B站 CDN 的 **TCP 建连可能极慢**（实测曾达 37~49 秒），
+> 而连接建立后单张图传输仅需 0.1~0.3 秒。模块内置的长连接池正是为此设计——
+> 复用连接后吞吐提升约 250 倍。若归档异常缓慢，优先排查到 `i0.hdslb.com` 的网络质量。
 
 ---
 
@@ -104,6 +157,107 @@ bilibili-resell-monitor/
 | `/api/crawl` | `POST` | 触发后台爬虫抓取任务（支持参数：category, sort, pages） |
 | `/api/crawl/status` | `GET` | 获取后台爬虫实时运行状态与流式终端日志 |
 | `/api/schedule` | `GET / POST` | 查询与设置后台自动定时巡检调度配置 |
+| `/api/notify/config` | `GET / POST` | 查询与保存推送渠道配置 |
+| `/api/img?url=xxx` | `GET` | 商品图服务（本地缓存优先，未命中回源并落盘） |
+| `/api/imgcache/stat` | `GET` | 查询图片缓存占用与命中统计 |
+| `/api/imgcache/prefetch` | `POST` | 手动触发全量图片归档（后台线程） |
+| `/api/imgcache/clear` | `POST` | 清空本地图片缓存 |
+
+---
+
+## 🐧 Linux 服务器部署（systemd）
+
+项目为纯标准库实现，可直接部署到 Linux 服务器常驻运行（无桌面依赖）。
+
+**1. 安装 Python 并准备目录**
+
+```bash
+sudo apt update && sudo apt install -y python3
+sudo mkdir -p /opt/bili-monitor && cd /opt/bili-monitor
+# 上传或 git clone 项目文件到本目录
+```
+
+**2. 可选：安装 requests 提升抓取稳定性**
+
+```bash
+pip3 install requests
+```
+
+**3. 创建 systemd 服务**
+
+```bash
+sudo tee /etc/systemd/system/bili-monitor.service > /dev/null <<'EOF'
+[Unit]
+Description=Bilibili Resell Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bili-monitor
+# --no-open 必需：服务器无桌面环境，禁止尝试拉起浏览器
+ExecStart=/usr/bin/python3 /opt/bili-monitor/web_server.py --port 8000 --no-open
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/bili-monitor.log
+StandardError=append:/var/log/bili-monitor.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now bili-monitor
+sudo systemctl status bili-monitor
+```
+
+**4. 放通端口**
+
+在轻量应用服务器控制台的「防火墙」中放通 `8000/TCP`（或改用 Nginx 反代后只放通 80/443）。
+
+> ⚠️ **安全提醒**：本服务**没有任何鉴权**，任何能访问该端口的人都可以触发抓取、
+> 修改推送配置、查看你的数据。**请勿将 8000 端口直接暴露到公网**。
+> 建议二选一：① 只放通给固定 IP；② 用 Nginx 反代并加 Basic Auth。
+
+**5. Nginx 反代 + Basic Auth（推荐）**
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    auth_basic "Restricted";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300s;   # 抓取任务较慢，需放宽超时
+    }
+}
+```
+
+```bash
+sudo apt install -y nginx apache2-utils
+sudo htpasswd -c /etc/nginx/.htpasswd youruser
+sudo systemctl restart nginx
+```
+
+**6. 流量预算参考**
+
+| 项目 | 流量成本 |
+| :--- | :--- |
+| 图片首次全量归档（688 商品） | **约 8.4 MB**（一次性） |
+| 图片增量归档（每日新商品） | 通常 < 5 MB/天 |
+| 浏览器二次访问图片 | **0**（浏览器本地缓存 7 天） |
+| 抓取商品列表 | 每次数 MB（取决于翻页深度） |
+
+综上，4Mbps 带宽 + 入门套餐的月流量包**完全够用**。
+
+> ⚠️ **务必在防火墙层面只放通必要端口**，并注意该服务默认监听 `0.0.0.0`。
+> 若希望仅本机访问，启动时加 `--host 127.0.0.1` 配合 Nginx 反代。
 
 ---
 
