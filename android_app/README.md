@@ -1,6 +1,39 @@
-# Android 移动端 (v1.6.0 二次元视觉焕新版)
+# Android 移动端 (v1.7.0 赛博流光·极客动效版)
 
-基于 Kivy 原生 UI 深度重构的安卓移动端，融合清新纯净现代极简设计（Neo-Nordic），复用 `bili_resell.py` 爬虫核心，纯 Python 实现。
+基于 Kivy 原生 UI 深度重构的安卓移动端，融合赛博极客深色流光微拟态美学与炫技级微动效体系，复用 `bili_resell.py` 爬虫核心，纯 Python 实现。
+
+## ⚡ v1.7.0 赛博流光·炫技微动效跃迁
+
+1. **🌌 赛博极客·流光深色玻璃美学 (Cyberpunk Frosted Glass)**：
+   - 深邃曜黑太空底色（`#0B0F19`），在手机 OLED 屏上拥有极致纯黑对比度与发光质感，功耗显著降低；
+   - 通透深色流光微拟态卡片（`#131B2A`）与霓虹发光微边框（`#2A3956`）；
+   - 四重赛博霓虹点缀：B站璀璨粉（`#FF6699`）、电光青（`#00F2FE`）、薄荷绿（`#34D399`）、晨曦金（`#FBBF24`）。
+2. **🎯 触控物理微缩弹性反馈 (Tactile Scale Bounce)**：
+   - 商品卡片、操作按钮、筛选胶囊全面接入 OpenGL Canvas 实时变换矩阵；
+   - 手指按下时瞬时缩放至 0.965~0.972 并微调边缘流光高亮；
+   - 释放时以 `out_back` 物理超调弹性曲线强劲回弹至 1.0，带来极度跟手的机械触感。
+3. **🌊 阶梯多米诺瀑布流进场 (Staggered Cascade List Entry)**：
+   - 列表首屏展示、筛选标签切换与捡漏雷达展开时，视窗卡片按 `0.025s` 阶梯延时依次从下方向上滑出淡入（`out_cubic`）；
+   - 在 120Hz 高刷屏上呈现多米诺骨牌般的如丝般顺滑跃动。
+4. **📈 动态 Canvas 贝塞尔走势图 (Interactive Trend Chart)**：
+   - 官方历史成交明细深度集成动态折线走势图：
+   - Canvas 原生抗锯齿平滑曲线 + 半透明三角形网格渐变面积填充（Gradient Mesh Area Fill）；
+   - 带有展开扫掠动效（Sweep Animation）、发光数据节点与最高/最低成交价浮动胶囊提示。
+5. **📡 捡漏雷达动态科幻探测舱 (Animated Radar Pulse Scanner HUD)**：
+   - 捡漏雷达升级为全动态雷达监控舱：
+   - 30 FPS 实时同心扩散脉冲波纹（Concentric Pulse Waves，随半径扩展渐隐）；
+   - 360° 旋转雷达扫描光束与实时状态信标；
+   - 动态截获漏品雷达点标记与高阶监控遥测面板。
+6. **💧 流体果冻拉伸底部导航栏 (Fluid Morphing Capsule TabBar)**：
+   - 底部指示条升级为流体拉伸胶囊，切换时宽度动态拉伸延展至 54dp，到位后以 `out_back` 弹性回缩至 36dp 胶囊并伴随微弹。
+7. **🪟 底部抽屉式平滑弹性升降弹窗 (Spring Bottom Sheet Modal)**：
+   - 商品详情弹窗采用移动端现代底部抽屉交互，从屏幕底沿平滑减速滑出，顶部带有精致防滑药丸抓手（Drag Pill Handle）。
+8. **🌓 双视觉风格即时热切换引擎 (Dynamic Dual Theme Engine)**：
+   - 系统设置页提供「赛博极客·流光深色」与「纯净通透·二次元微光」双风格交互卡片，支持一键无闪烁热切换；
+   - 全局底色、微拟态卡片、高亮边框、雷达扫描舱、Canvas 贝塞尔折线走势图与底部流体导航栏全链路动态重绘；
+   - 自动持久化记忆用户偏好设置（`theme_config.json`），下次启动无缝还原。
+
+---
 
 ## 🎨 v1.6.0 二次元视觉焕新与无缝转场
 
@@ -63,10 +96,10 @@
 
 APK 由 GitHub Actions 云端产出（无需在本机安装 Android SDK/NDK/Docker）：
 
-1. 推送 tag `apk-v1.6.0` 触发自动构建：
+1. 推送 tag `apk-v1.7.0` 触发自动构建：
    ```bash
-   git tag apk-v1.6.0
-   git push origin apk-v1.6.0
+   git tag apk-v1.7.0
+   git push origin apk-v1.7.0
    ```
 2. 或进入 GitHub 仓库 **Actions** 页 → 选择 **Build Android APK** workflow → 点击 **Run workflow** 手动触发。
 3. 构建完成后在该次运行页面的 **Artifacts** 下载 `biliresellmonitor-apk` 安装包。
@@ -83,10 +116,10 @@ C:/Users/Administrator/.workbuddy/binaries/python/envs/kivy/Scripts/python.exe a
 
 - `icon.png` — 萌系小电视姬高清应用图标 (512x512)
 - `presplash.png` — 治愈系 33 娘开屏画卷 (1080x2340, #E7E6E4 沉浸底色)
-- `main.py` — Kivy 移动端主程序（UI 布局、120Hz 调度、清新配色、开屏转场、交互弹窗、动效）
+- `main.py` — Kivy 移动端主程序（UI 布局、120Hz 调度、赛博流光深色微拟态、物理触感回弹、阶梯瀑布流、动态雷达、走势图）
 - `notification_helper.py` — Android 状态栏系统通知助手（NotificationChannel, PendingIntent）
 - `scheduler.py` — 前后台定时自动巡检守护线程与漏品检测
 - `android_compat.py` — 安卓私有目录适配层（兼容桌面调试与手机端运行）
 - `bili_resell.py` — 爬虫核心与市集成交明细解析引擎
-- `buildozer.spec` — 打包配置（v1.6.0，arm64-v8a，minSdk 24，targetSdk 34，二次元图标与开屏）
+- `buildozer.spec` — 打包配置（v1.7.0，arm64-v8a，minSdk 24，targetSdk 34，二次元图标与开屏）
 - `NotoSansCJKsc-Regular.otf` — 思源黑体字体（确保安卓 CJK 中文完美渲染）
