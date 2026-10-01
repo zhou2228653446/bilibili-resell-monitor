@@ -104,15 +104,24 @@ bilibili-resell-monitor/
 ├── start.bat                 # 快速启动（英文提示版）
 ├── .github/workflows/        # GitHub Actions：Android APK 云端构建
 ├── cache/img/                # 商品图片本地缓存（运行时生成，已 gitignore）
-├── 3c_products.json          # 最新商品数据快照
-├── 3c_products.csv           # 最新商品 CSV 数据快照
-├── 3c_products_history.csv   # 历史多时点价格轨迹库（用于降价告警分析）
-├── deals_cache.json          # 市集成交数据本地持久化缓存
-├── pushed_alerts.json        # 已推送告警去重记录
 ├── deploy.conf               # 服务器地址配置（运行时生成，已 gitignore）
 ├── .gitignore
 └── README.md
 ```
+
+运行时生成、不入库的数据文件（首次克隆后为空，跑一次抓取即有）：
+
+```text
+3c_products.json          最新商品数据快照
+3c_products.csv           最新商品 CSV 数据快照
+3c_products_history.csv   历史多时点价格轨迹库（降价告警的基线，唯一不可重建）
+deals_cache.json          市集成交数据本地持久化缓存
+pushed_alerts.json        已推送告警去重记录
+```
+
+> 这几个文件每次抓取都会变更，且历史库已达数十 MB，入库会让 `.git` 持续膨胀，
+> 因此已在 `.gitignore` 中排除。**唯一的例外是 `3c_products_history.csv`**——
+> 它是几十天积累的价格轨迹，丢了只能从零采集，务必定期备份（见 `backup_data.py`）。
 
 ---
 
