@@ -60,12 +60,58 @@ echo.
 echo ============================================================
 echo  配置完成
 echo ============================================================
-echo  立即启动服务 : schtasks /run /tn BiliMonitor
 echo  停止服务     : 双击 stop_server.bat
 echo  查看任务状态 : schtasks /query /tn BiliMonitor /v
 echo  查看日志     : logs\server.log
 echo.
-echo  外网访问地址 : 见 ddns.conf 配置的域名，或运行
-echo                 python ddns_update.py --show 查看当前 IPv6
+
+REM ---- 服务已在监听则跳过，避免启动第二个实例抢端口 ----
+netstat -ano | findstr ":8000" | findstr "LISTENING" >nul 2>&1
+if errorlevel 1 (
+    echo 正在启动服务 ...
+    schtasks /run /tn BiliMonitor
+    timeout /t 8 /nobreak >nul
+) else (
+    echo 服务已在运行，跳过启动。
+)
+
+REM ---- 读取访问口令 ----
+set "TOKEN="
+if exist "%~dp0auth.conf" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0auth.conf") do (
+        if /i "%%~A"=="DASHBOARD_TOKEN" set "TOKEN=%%~B"
+    )
+)
+
+REM ---- 取本机局域网 IPv4 与公网 IPv6 ----
+set "LAN4="
+for /f "delims=" %%I in ('"%PY%" -c "import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(('223.5.5.5',80));print(s.getsockname()[0])" 2^>nul') do set "LAN4=%%I"
+set "WAN6="
+for /f "delims=" %%I in ('"%PY%" "%~dp0ddns_update.py" --show 2^>nul') do set "WAN6=%%I"
+
 echo.
+echo ============================================================
+echo  访问地址（复制完整地址到浏览器，口令已内嵌）
+echo ============================================================
+if defined LAN4 (
+    echo   家里同 WiFi : http://%LAN4%:8000/?token=%TOKEN%
+) else (
+    echo   家里同 WiFi : http://localhost:8000/
+)
+echo   本机直接   : http://localhost:8000/
+if defined WAN6 (
+    echo   外网/手机流量: http://[%WAN6%]:8000/?token=%TOKEN%
+    echo                  ^^^ 需先在路由器防火墙放行，且手机支持 IPv6
+) else (
+    echo   外网       : 未检测到公网 IPv6，只能在家访问
+)
+echo.
+if defined LAN4 (
+    choice /c YN /n /m "现在打开看板？[Y/N]"
+    if errorlevel 2 goto :done
+    start "" "http://%LAN4%:8000/?token=%TOKEN%"
+)
+:done
+echo.
+echo 提示：口令只需带一次，浏览器会记住一年。
 pause
