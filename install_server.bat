@@ -23,30 +23,35 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/5] 创建开机自启任务 BiliMonitor ...
+echo [1/6] 创建开机自启任务 BiliMonitor ...
 schtasks /create /tn "BiliMonitor" /tr "\"%~dp0run_server.bat\"" /sc onstart /ru SYSTEM /rl HIGHEST /f
 if errorlevel 1 (echo   [失败] 任务创建失败，请检查命令输出) else (echo   OK)
 
 echo.
-echo [2/5] 创建 DDNS 定时检测任务（每 30 分钟）...
+echo [2/6] 创建 DDNS 定时检测任务（每 30 分钟）...
 set "PY=C:\Users\DDD\AppData\Local\Programs\Python\Python312\python.exe"
 if not exist "%PY%" set "PY=python"
 schtasks /create /tn "BiliMonitorDDNS" /tr "\"%PY%\" \"%~dp0ddns_update.py\"" /sc minute /mo 30 /ru SYSTEM /rl HIGHEST /f
 if errorlevel 1 (echo   [失败] 任务创建失败) else (echo   OK)
 
 echo.
-echo [3/5] 防火墙放行 8000 端口 ...
+echo [3/6] 创建每日备份任务（04:00，备份到 E 盘）...
+schtasks /create /tn "BiliMonitorBackup" /tr "\"%PY%\" \"%~dp0backup_data.py\"" /sc daily /st 04:00 /ru SYSTEM /rl HIGHEST /f
+if errorlevel 1 (echo   [失败] 任务创建失败) else (echo   OK)
+
+echo.
+echo [3/6] 防火墙放行 8000 端口 ...
 netsh advfirewall firewall delete rule name="Bili Monitor 8000" >nul 2>&1
 netsh advfirewall firewall add rule name="Bili Monitor 8000" dir=in action=allow protocol=TCP localport=8000 profile=any
 if errorlevel 1 (echo   [失败] 请手动放行) else (echo   OK)
 
 echo.
-echo [4/5] 禁用 IPv6 临时地址（让外网地址稳定）...
+echo [4/6] 禁用 IPv6 临时地址（让外网地址稳定）...
 netsh interface ipv6 set privacy state=disabled
 if errorlevel 1 (echo   [失败]) else (echo   OK)
 
 echo.
-echo [5/5] 电源改为常开 ...
+echo [5/6] 电源改为常开 ...
 powercfg /change monitor-timeout-ac 0
 powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
