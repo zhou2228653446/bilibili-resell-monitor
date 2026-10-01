@@ -244,6 +244,38 @@ def parse_price(s):
         return None
 
 
+# 历史长表解析缓存。巡检间隔缩短后历史库增长很快（10 分钟一次约 27MB/天），
+# 而 /api/data 每次请求都会把整张表解析一遍。以文件 mtime+size 为指纹，
+# 文件未变化时复用解析结果；抓取写入后指纹改变，缓存自动失效。
+_history_cache = {"key": None, "rows": None}
+_history_cache_lock = threading.Lock()
+
+
+def load_history_rows():
+    """解析历史长表并缓存。调用方只读不写，复用结果不会互相污染。"""
+    try:
+        st = os.stat(HISTORY_PATH)
+        key = (st.st_mtime, st.st_size)
+    except OSError:
+        return []
+
+    with _history_cache_lock:
+        if _history_cache["key"] == key and _history_cache["rows"] is not None:
+            return _history_cache["rows"]
+
+    try:
+        with open(HISTORY_PATH, "r", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+    except Exception as e:
+        print(f"[Warn] 读取历史表失败: {e}", file=sys.stderr)
+        return []
+
+    with _history_cache_lock:
+        _history_cache["key"] = key
+        _history_cache["rows"] = rows
+    return rows
+
+
 def get_latest_data():
     """读取并汇总最新的商品数据、统计指标、走势及降价告警。"""
     products = []
@@ -274,16 +306,9 @@ def get_latest_data():
         except Exception as e:
             print(f"[Warn] 读取 CSV 失败: {e}", file=sys.stderr)
 
-    # 3. 读取历史长表并计算走势与告警
-    history_rows = []
-    history_times = []
-    if os.path.exists(HISTORY_PATH):
-        try:
-            with open(HISTORY_PATH, "r", encoding="utf-8-sig") as f:
-                history_rows = list(csv.DictReader(f))
-            history_times = sorted({r["crawl_time"] for r in history_rows if "crawl_time" in r})
-        except Exception as e:
-            print(f"[Warn] 读取历史表失败: {e}", file=sys.stderr)
+    # 3. 读取历史长表并计算走势与告警（带解析缓存）
+    history_rows = load_history_rows()
+    history_times = sorted({r["crawl_time"] for r in history_rows if "crawl_time" in r})
 
     # 价格解析与统计计算
     prices = []
@@ -482,18 +507,16 @@ def get_product_history(cluster_id):
     points = []
     title = ""
     try:
-        with open(HISTORY_PATH, "r", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                if r.get("cluster_id") == cluster_id:
-                    title = r.get("title", title)
-                    p_num = parse_price(r.get("price"))
-                    points.append({
-                        "crawl_time": r.get("crawl_time", ""),
-                        "price": r.get("price", ""),
-                        "price_num": p_num,
-                        "reference_price": r.get("reference_price", ""),
-                    })
+        for r in load_history_rows():
+            if r.get("cluster_id") == cluster_id:
+                title = r.get("title", title)
+                p_num = parse_price(r.get("price"))
+                points.append({
+                    "crawl_time": r.get("crawl_time", ""),
+                    "price": r.get("price", ""),
+                    "price_num": p_num,
+                    "reference_price": r.get("reference_price", ""),
+                })
     except Exception as e:
         print(f"[Warn] 获取商品历史失败: {e}", file=sys.stderr)
 

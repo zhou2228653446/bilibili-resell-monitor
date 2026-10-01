@@ -604,6 +604,7 @@
           <label class="block text-xs font-semibold text-slate-500 mb-1">巡检间隔频率</label>
           <select id="scheduleIntervalSelect" class="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium">
             <option value="5">每 5 分钟 (高频巡检)</option>
+            <option value="10">每 10 分钟 (密集)</option>
             <option value="15">每 15 分钟 (推荐)</option>
             <option value="30" selected>每 30 分钟 (平稳)</option>
             <option value="60">每 1 小时 (省资源)</option>
@@ -2115,7 +2116,16 @@
         const cfg = await res.json();
         
         els.scheduleEnableToggle.checked = Boolean(cfg.enabled);
-        els.scheduleIntervalSelect.value = String(cfg.interval_minutes || 30);
+        // 服务端可能存有下拉框里没有的间隔（手动改配置、旧版本遗留），
+        // 此时 select.value 赋值会静默失效并显示空白，故动态补一个选项。
+        const iv = String(cfg.interval_minutes || 30);
+        if (![...els.scheduleIntervalSelect.options].some(o => o.value === iv)) {
+          const opt = document.createElement('option');
+          opt.value = iv;
+          opt.textContent = `每 ${iv} 分钟 (自定义)`;
+          els.scheduleIntervalSelect.appendChild(opt);
+        }
+        els.scheduleIntervalSelect.value = iv;
         els.scheduleCategory.value = cfg.category || '898';
         els.scheduleSort.value = cfg.sort || 'hot';
         els.scheduleLastRun.textContent = cfg.last_run || '从未';
