@@ -1,0 +1,17 @@
+# dynv6 动态域名配置样例
+# 使用：复制本文件为 ddns.conf，填好下面两行即可生效（ddns.conf 不会被提交到 git）
+#
+# 为什么需要：家庭宽带的 IPv6 前缀由运营商分配，重拨或租约到期后会变，
+# 直接记 IP 会失效。配好动态域名后，手机上永远访问同一个网址。
+#
+# 配置步骤：
+#   1. 打开 https://dynv6.com 注册（免费），创建一个 zone，例如 bili-home.dynv6.net
+#   2. 进入该 zone 的 DDNS / Activation 页面，复制 HTTP token
+#   3. 把下面两行填上并保存
+#   4. 手动验证：python ddns_update.py --force
+#
+# 不配置也能用：ddns_update.py 检测到 IPv6 变化时，会用项目已有的推送通道
+#（企业微信 / WxPusher / QQ邮箱 / Bark / Server酱）把新地址发到手机。
+
+DDNS_ZONE=
+DDNS_TOKEN=

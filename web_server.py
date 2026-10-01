@@ -16,6 +16,7 @@ import http.server
 import json
 import os
 import re
+import socket
 import socketserver
 import subprocess
 import sys
@@ -69,6 +70,11 @@ try:
     IMG_FETCH_INTERVAL = float(os.environ.get("IMG_FETCH_INTERVAL", "0.15"))
 except ValueError:
     IMG_FETCH_INTERVAL = 0.15
+
+# 访问口令（可选）。留空 = 不鉴权，保持历史行为。
+# 把本机当服务器并对公网开放时（IPv6 直连 / 路由器端口映射）务必设置：
+# 本服务本身没有任何权限校验，任何能连到端口的人都能触发抓取、改推送配置、看数据。
+DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "").strip()
 
 # 引入 bili_resell 核心抓取与成交查询模块
 try:
@@ -579,8 +585,97 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=WEB_DIR, **kwargs)
+        self._pending_cookie = None
+
+    # ---------------- 访问口令校验 ----------------
+
+    def _client_is_loopback(self):
+        """本机回环访问直接放行，便于本机脚本调试与自检。"""
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _token_from_request(self):
+        """依次从 URL 参数、自定义头、Cookie 中取出口令。"""
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        tok = qs.get("token", [""])[0]
+        if tok:
+            return tok
+        tok = self.headers.get("X-Dashboard-Token", "")
+        if tok:
+            return tok
+        cookie = self.headers.get("Cookie", "") or ""
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith("dashboard_token="):
+                return part[len("dashboard_token="):]
+        return ""
+
+    def _send_unauthorized(self):
+        """未通过校验：页面请求返回口令输入页，接口请求返回 401 JSON。"""
+        parsed = urllib.parse.urlparse(self.path)
+        is_page = (self.command == "GET" and parsed.path in ("/", "/index.html"))
+        if is_page:
+            body = (
+                "<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<title>需要访问口令</title></head>"
+                "<body style='margin:0;display:flex;align-items:center;justify-content:center;"
+                "height:100vh;font-family:system-ui,-apple-system,\"Microsoft YaHei\",sans-serif;"
+                "background:#F8FAFC'>"
+                "<div style='background:#fff;padding:28px 32px;border-radius:12px;"
+                "border:1px solid #E2E8F0;text-align:center'>"
+                "<div style='font-size:16px;font-weight:500;color:#0F172A;margin-bottom:16px'>"
+                "需要访问口令</div>"
+                "<input id='t' type='password' autofocus placeholder='请输入访问口令'"
+                " style='padding:8px 12px;border:1px solid #CBD5E1;border-radius:8px;"
+                "font-size:14px;width:200px;outline:none'"
+                " onkeydown=\"if(event.key==='Enter')go()\">"
+                "<div style='margin-top:14px'>"
+                "<button onclick='go()'"
+                " style='padding:8px 20px;background:#185FA5;color:#fff;border:none;"
+                "border-radius:8px;font-size:14px;cursor:pointer'>进入</button></div>"
+                "</div>"
+                "<script>function go(){var v=document.getElementById('t').value;"
+                "if(!v)return;location.href='/?token='+encodeURIComponent(v)}</script>"
+                "</body></html>"
+            ).encode("utf-8")
+            self.send_response(401)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_json(401, {"error": "unauthorized", "message": "需要访问口令"})
+        return
+
+    def _auth_ok(self):
+        """口令校验总入口。未配置 DASHBOARD_TOKEN 时不做任何校验。"""
+        if not DASHBOARD_TOKEN:
+            return True
+        if self._client_is_loopback():
+            return True
+        if self._token_from_request() == DASHBOARD_TOKEN:
+            # 首次用 URL 带口令进入后种一个长期 Cookie，之后同域请求自动携带
+            cookie = self.headers.get("Cookie", "") or ""
+            if "dashboard_token=" not in cookie:
+                self._pending_cookie = (
+                    f"dashboard_token={DASHBOARD_TOKEN}; Path=/; "
+                    "Max-Age=31536000; HttpOnly; SameSite=Lax"
+                )
+            return True
+        self._send_unauthorized()
+        return False
+
+    def send_response(self, code, message=None):
+        """统一在这里补种 Cookie（页面与接口响应都会经过）。"""
+        super().send_response(code, message)
+        if getattr(self, "_pending_cookie", None):
+            self.send_header("Set-Cookie", self._pending_cookie)
+            self._pending_cookie = None
 
     def do_GET(self):
+        if not self._auth_ok():
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
@@ -633,6 +728,8 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        if not self._auth_ok():
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
@@ -1081,10 +1178,27 @@ def main():
     os.makedirs(WEB_DIR, exist_ok=True)
     server_address = (args.host, args.port)
 
+    # HTTPServer 默认只用 IPv4 地址族，监听 IPv6 地址（如 ::）时必须显式声明，
+    # 否则 bind 时会抛 getaddrinfo failed。
+    addr_family = socket.AF_INET6 if ":" in args.host else socket.AF_INET
+
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
+        address_family = addr_family
+
+        def server_bind(self):
+            # 必须在 bind 之前关闭 V6ONLY 才能开启双栈：同一个端口同时接受
+            # IPv4（局域网 192.168.x.x）和 IPv6（公网直连）。Windows 默认
+            # IPV6_V6ONLY=1，且 bind 之后再设置无效——这正是要重写本方法的原因。
+            if self.address_family == socket.AF_INET6:
+                try:
+                    self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+                except OSError as e:
+                    print(f"[Warn] 未能开启 IPv4/IPv6 双栈，IPv4 将无法访问: {e}")
+            super().server_bind()
 
     httpd = ThreadedHTTPServer(server_address, DashboardHTTPHandler)
+
     url = f"http://localhost:{args.port}"
     print("=" * 60)
     print(f"🚀 B站会员购转售数据看板 已启动!")

@@ -37,5 +37,12 @@ notify_config.json
 # 服务器部署配置（含公网 IP、密钥路径，禁止入库）
 deploy.conf
 
+# 本机做服务器时的敏感配置与运行产物
+# 注意：gitignore 不支持行尾注释，注释必须单独占一行
+auth.conf
+ddns.conf
+logs/
+.last_ipv6
+
 # 商品图片本地缓存（运行时自动生成，体积随商品数增长，不入库）
 cache/

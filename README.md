@@ -180,6 +180,14 @@ bilibili-resell-monitor/
 
 ---
 
+## 🏠 把本机（Windows）当服务器跑
+
+不想租云服务器的话，可以直接让这台 Windows 机器 7x24 常驻运行：开机自启、
+崩溃自动重启、公网通过 IPv6 直连（需配置访问口令）。
+完整步骤见 **[WINDOWS_SERVER.md](WINDOWS_SERVER.md)**。
+
+---
+
 ## 🐧 Linux 服务器部署（systemd）
 
 项目为纯标准库实现，可直接部署到 Linux 服务器常驻运行（无桌面依赖）。
