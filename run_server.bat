@@ -1,20 +1,25 @@
 @echo off
-chcp 65001 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 REM ============================================================
-REM  B站转售监控 —— 服务常驻启动脚本
+REM  Bili resell monitor - resident service launcher
 REM
-REM  由任务计划程序调用（开机自启）。双击也能跑，但会占用控制台窗口。
-REM  自带崩溃重启：服务进程退出后 5 秒自动拉起，7x24 无需人工干预。
+REM  NOTE: this file is intentionally pure ASCII (no chcp call either).
+REM  cmd.exe cannot reliably parse UTF-8 batch files: multi-byte characters
+REM  that straddle its internal read boundary get split, and the tail fragment
+REM  is then executed as a command ("... is not recognized"). Keeping to ASCII
+REM  makes the startup banner and the archived logs deterministic.
+REM
+REM  Called by the scheduled task (boot, SYSTEM) and by the Startup folder
+REM  (after logon). Auto restart: relaunches 5s after the service exits.
 REM ============================================================
 
-REM ---- Python 解释器：优先用为服务单独安装的正式版 ----
+REM ---- Python interpreter: prefer the dedicated install ----
 set "PY=C:\Users\DDD\AppData\Local\Programs\Python\Python312\python.exe"
 if not exist "%PY%" set "PY=python"
 
-REM ---- 访问口令：从 auth.conf 读取（该文件已被 .gitignore 忽略）----
+REM ---- Access token: read from auth.conf (gitignored) ----
 set "DASHBOARD_TOKEN="
 if exist "%~dp0auth.conf" (
     for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0auth.conf") do (
@@ -22,11 +27,11 @@ if exist "%~dp0auth.conf" (
     )
 )
 if not defined DASHBOARD_TOKEN (
-    echo [警告] 未配置访问口令。auth.conf 里 DASHBOARD_TOKEN 为空，
-    echo         服务将对任何能访问 8000 端口的人完全开放。
+    echo [WARN] DASHBOARD_TOKEN is empty in auth.conf.
+    echo        The dashboard will be open to anyone who can reach port 8000.
 )
 
-REM ---- 日志：启动时归档上一轮日志，仅保留最近 7 份 ----
+REM ---- Log rotation: archive previous log, keep 7 ----
 set "LOGDIR=%~dp0logs"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set "LOGFILE=%LOGDIR%\server.log"
@@ -37,14 +42,21 @@ if exist "%LOGFILE%" (
 )
 for /f "skip=7 delims=" %%F in ('dir /b /o-d "%LOGDIR%\server-*.log" 2^>nul') do del /q "%LOGDIR%\%%F" 2>nul
 
-echo [%DATE% %TIME%] 启动服务
+echo [%DATE% %TIME%] Service starting
 echo   Python  : %PY%
-echo   监听    : http://[::]:8000 （IPv4 / IPv6 双栈）
-echo   日志    : %LOGFILE%
+echo   Listen  : http://[::]:8000  (IPv4 / IPv6 dual stack)
+echo   Log     : %LOGFILE%
 
-REM ---- 常驻循环：--host :: 开启双栈，局域网与公网 IPv6 都能连 ----
 :loop
+REM Guard: both the scheduled task (boot, SYSTEM) and the Startup folder
+REM (after logon) call this script. Whoever binds port 8000 first keeps it;
+REM the other exits here instead of crashing in a restart loop.
+netstat -ano | findstr ":8000" | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
+    echo [%DATE% %TIME%] Port 8000 already in use, another instance is running. Exiting.
+    exit /b 0
+)
 "%PY%" web_server.py --port 8000 --host :: --no-open >> "%LOGFILE%" 2>&1
-echo [%DATE% %TIME%] 服务进程退出（退出码 %errorlevel%），5 秒后自动重启...
+echo [%DATE% %TIME%] Service exited with code %errorlevel%, restarting in 5s...
 timeout /t 5 /nobreak >nul 2>&1
 goto loop
