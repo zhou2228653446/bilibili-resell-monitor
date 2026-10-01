@@ -66,7 +66,7 @@ python build_exe.py
 > 构建完成后，根目录下会生成 `bilibili_resell_monitor.exe`。
 > 双击该文件即可全自动启动后端服务、定时调度器并弹窗打开浏览器！数据与配置自动保存在 exe 同级目录下，随时便携迁移。
 
-### 3. 命令行独立运行爬虫（可选）
+### 4. 命令行独立运行爬虫（可选）
 ```bash
 # 全量抓取 3C数码 分类并导出 JSON 和 CSV
 python bili_resell.py --category 898 --all --csv 3c_products.csv --json 3c_products.json
@@ -88,13 +88,28 @@ bilibili-resell-monitor/
 ├── web_server.py             # REST API 服务器 + 定时调度器 + 静态文件托管
 ├── image_cache.py            # 商品图片本地缓存（缩略图牵引 + 长连接池 + LRU淘汰）
 ├── notifier.py               # 微信/邮件/企微等渠道推送
+├── android_compat.py         # Android 私有目录适配层（桌面/服务端不受影响）
 ├── web/
 │   └── index.html            # 前端单页可视化监控大盘 (Tailwind + Chart.js + Lucide)
+├── android_app/              # Kivy 安卓客户端（APK 由 GitHub Actions 云端构建）
+│   ├── main.py               # 移动端主程序（UI、定时巡检、走势图、雷达）
+│   ├── scheduler.py          # 前后台定时巡检守护线程
+│   ├── notification_helper.py# Android 状态栏系统通知
+│   └── buildozer.spec        # 打包配置（arm64-v8a, minSdk 24, targetSdk 34）
+├── build_exe.py              # 打包为单一 Windows EXE（自动安装 PyInstaller）
+├── deploy.sh                 # Linux 服务器一键部署（systemd）
+├── 一键启动.bat              # Windows 双击启动看板
+├── 打包成EXE.bat             # Windows 双击打包 EXE
+├── 上传到服务器.bat          # Windows 一键 scp 上传并重启服务
+├── start.bat                 # 快速启动（英文提示版）
+├── .github/workflows/        # GitHub Actions：Android APK 云端构建
 ├── cache/img/                # 商品图片本地缓存（运行时生成，已 gitignore）
 ├── 3c_products.json          # 最新商品数据快照
 ├── 3c_products.csv           # 最新商品 CSV 数据快照
 ├── 3c_products_history.csv   # 历史多时点价格轨迹库（用于降价告警分析）
 ├── deals_cache.json          # 市集成交数据本地持久化缓存
+├── pushed_alerts.json        # 已推送告警去重记录
+├── deploy.conf               # 服务器地址配置（运行时生成，已 gitignore）
 ├── .gitignore
 └── README.md
 ```
@@ -180,8 +195,12 @@ sudo mkdir -p /opt/bili-monitor && cd /opt/bili-monitor
 **2. 可选：安装 requests 提升抓取稳定性**
 
 ```bash
-pip3 install requests
+sudo apt install -y python3-requests
 ```
+
+> ⚠️ Ubuntu 24.04+ 受 PEP 668 保护，直接 `pip3 install requests` 会报
+> `externally-managed-environment`。装不上也不影响运行（自动回退 urllib），
+> 只是抗 429 能力稍弱；确需 pip 请加 `--break-system-packages` 或用 venv。
 
 **3. 创建 systemd 服务**
 
@@ -258,6 +277,27 @@ sudo systemctl restart nginx
 
 > ⚠️ **务必在防火墙层面只放通必要端口**，并注意该服务默认监听 `0.0.0.0`。
 > 若希望仅本机访问，启动时加 `--host 127.0.0.1` 配合 Nginx 反代。
+
+**7. Windows 一键上传部署（可选）**
+
+不想手动敲 scp 的话，在 Windows 上双击 `上传到服务器.bat` 即可：
+
+1. 首次运行会询问服务器 IP（默认用户 `root`、目录 `/opt/bili-monitor`、密钥 `%USERPROFILE%\.ssh\id_ed25519`）；
+2. 可选择保存为 `deploy.conf`，下次免输入。该文件已被 `.gitignore` 忽略，**不会**把公网 IP 提交进仓库；
+3. 脚本依次上传程序文件、前端页面、数据文件，创建远程目录并重启 `bili-monitor` 服务；
+4. 历史价格库 `3c_products_history.csv` **仅在服务器尚不存在时上传**，避免覆盖远端更全的历史基线。
+
+服务器信息优先级：**环境变量 > `deploy.conf` > 运行时输入**。`deploy.conf` 格式：
+
+```ini
+SERVER_IP=1.2.3.4
+SERVER_USER=root
+REMOTE_DIR=/opt/bili-monitor
+DEPLOY_KEY=C:\Users\you\.ssh\id_ed25519
+```
+
+> 目标机首次部署时还没有 systemd 服务，请先执行一次
+> `ssh root@<IP> "cd /opt/bili-monitor && bash deploy.sh"` 完成初始化。
 
 ---
 

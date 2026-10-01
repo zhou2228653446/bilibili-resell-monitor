@@ -123,8 +123,10 @@ def get_current_history_alerts():
     """从历史数据中提取当前所有降价捡漏商品。"""
     try:
         # 尝试通过 web_server 的计算引擎直接获取最新 alerts
-        from web_server import get_processed_data
-        data = get_processed_data()
+        # 注意：函数名是 get_latest_data（web_server 中不存在 get_processed_data，
+        # 写错会导致 ImportError 被下方 except 吞掉、本函数恒返回空列表）
+        from web_server import get_latest_data
+        data = get_latest_data()
         alerts = data.get("alerts", [])
         if alerts:
             return alerts

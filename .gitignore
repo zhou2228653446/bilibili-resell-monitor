@@ -6,6 +6,7 @@ __pycache__/
 # IDE & Editor settings
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
 
@@ -32,6 +33,9 @@ crash_log.txt
 # Local notification & theme credentials/configs (secrets & runtime state)
 notify_config.json
 *theme_config.json
+
+# 服务器部署配置（含公网 IP、密钥路径，禁止入库）
+deploy.conf
 
 # 商品图片本地缓存（运行时自动生成，体积随商品数增长，不入库）
 cache/

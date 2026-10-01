@@ -648,56 +648,6 @@ def list_filters(home):
         print(f"  {c.get('id')}: {c.get('name')}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="抓取 B 站会员购转售首页商品信息",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "示例:\n"
-            "  python bili_resell.py                 # 默认抓全部 3c数码 并追加历史表(自动对比走势)\n"
-            "  python bili_resell.py --pages 3       # 仅抓 3c数码 前 3 页(每页20)\n"
-            "  python bili_resell.py --all           # 抓全部 3c数码(自动翻页去重)\n"
-            "  python bili_resell.py --csv 3c.csv    # 另存一份本次快照 CSV\n"
-            "  python bili_resell.py --sort priceFirst\n"
-            "  python bili_resell.py --category 142 --ip 3000003\n"
-            "  python bili_resell.py --category all  # 抓取全部分类\n"
-            "  python bili_resell.py --json out.json # 导出本次数据(含 meta)到 JSON\n"
-            "  python bili_resell.py --trend         # 读取历史表，对比最近两次价格走势(不抓取)\n"
-            "  python bili_resell.py --list-filters  # 查看可筛选维度取值\n"
-        ),
-    )
-    parser.add_argument("--pages", type=int, default=None,
-                        help="要抓取的商品流页数(每页20条)；不传则抓取全部")
-    parser.add_argument("--all", action="store_true",
-                        help="抓取该分类下的全部商品(自动翻页直到 hasMore=false)")
-    parser.add_argument("--sort", default="hot",
-                        choices=["hot", "mostListings", "priceFirst"],
-                        help="排序: hot=热门, mostListings=在售最多, priceFirst=价格优先")
-    parser.add_argument("--category", default="898",
-                        help="商品分类 ID (见 --list-filters)，默认 898=3c数码；传 all 表示全部")
-    parser.add_argument("--ip", default=None, help="IP 分区 ID (见 --list-filters)；传 all 表示全部")
-    parser.add_argument("--list-filters", action="store_true",
-                        help="仅列出可筛选的排序/分类/IP 取值后退出")
-    parser.add_argument("--json", default=None, help="将商品数据(含 meta)导出到该 JSON 文件")
-    parser.add_argument("--csv", default=None, help="将本次抓取的商品数据导出为一份 CSV 快照(覆盖写入)")
-    parser.add_argument("--history", default="3c_products_history.csv",
-                        help="历史累计文件(每次抓取自动追加，用于对比走势)；设为空字符串可关闭")
-    parser.add_argument("--no-history", action="store_true",
-                        help="不写入历史累计文件(仅本次输出)")
-    parser.add_argument("--trend", action="store_true",
-                        help="仅读取历史文件并打印最近两次的价格走势对比，不发起抓取")
-    parser.add_argument("--no-overview", action="store_true",
-                        help="不打印首页概览(限时大漏/筛选维度)")
-    parser.add_argument("--no-alert", action="store_true",
-                        help="关闭价格异动提醒(默认开启)")
-    parser.add_argument("--alert-prev", type=int, default=3,
-                        help="价格异动对比的历史抓取次数(默认 3，取前 n 次各自最高价作基准)")
-    parser.add_argument("--alert-abs", type=float, default=10.0,
-                        help="价格异动绝对阈值(元，默认 10)")
-    parser.add_argument("--alert-pct", type=float, default=0.10,
-                        help="价格异动相对阈值(默认 0.10 = 10%%)")
-    parser.add_argument("--alert-csv", default=None,
-                        help="将价格异动商品导出为 CSV(覆盖写入)")
 def crawl_and_export(
     category="898",
     ip=None,
