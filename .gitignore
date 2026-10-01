@@ -46,3 +46,12 @@ logs/
 
 # 商品图片本地缓存（运行时自动生成，体积随商品数增长，不入库）
 cache/
+
+# 采集产物与业务数据（每次抓取都会变更，且历史库已达 38MB，会把 .git 撑大）
+# 首次克隆后这些文件为空属正常：跑一次抓取即生成，价格轨迹从备份恢复
+# 不含斜杠，android_app/ 下的同名文件一并忽略
+3c_products.json
+3c_products.csv
+3c_products_history.csv
+deals_cache.json
+pushed_alerts.json
