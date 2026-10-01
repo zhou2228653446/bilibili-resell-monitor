@@ -1,17 +1,30 @@
-# dynv6 动态域名配置样例
-# 使用：复制本文件为 ddns.conf，填好下面两行即可生效（ddns.conf 不会被提交到 git）
+# 动态域名（DDNS）配置样例
+# 使用：复制本文件为 ddns.conf，填好下面三行即可生效（ddns.conf 不会被提交到 git）
 #
 # 为什么需要：家庭宽带的 IPv6 前缀由运营商分配，重拨或租约到期后会变，
-# 直接记 IP 会失效。配好动态域名后，手机上永远访问同一个网址。
+# 直接记 IP 会失效。配好动态域名后，手机永远访问同一个网址。
 #
-# 配置步骤：
-#   1. 打开 https://dynv6.com 注册（免费），创建一个 zone，例如 bili-home.dynv6.net
-#   2. 进入该 zone 的 DDNS / Activation 页面，复制 HTTP token
-#   3. 把下面两行填上并保存
-#   4. 手动验证：python ddns_update.py --force
+# 【为什么不用 dynv6】dynv6 的全部免费后缀（dns.army / v6.army / dynv6.net /
+# v6.rocks 等）在国内 DNS 上查询一律返回 NXDOMAIN，手机根本解析不了；
+# DuckDNS、FreeDNS 的更新接口被 RST 阻断；3322（公云）免费版只有 7 天。
+# 实测只有 No-IP 的接口稳定可达，且 ddns.net / hopto.org / zapto.org
+# 等后缀在国内可正常解析。
 #
-# 不配置也能用：ddns_update.py 检测到 IPv6 变化时，会用项目已有的推送通道
+# 【配置步骤】
+#   1. 注册 https://www.noip.com/sign-up （免费，不需要信用卡）
+#   2. 登录后 Dynamic DNS -> No-IP Hostnames -> Create Hostname
+#        子域名填 bili-home，Domain 选 ddns.net
+#        确保该主机名有 AAAA 记录（本机 IPv4 入站不通，别配 A 记录）
+#   3. 在该主机名上 Generate DDNS Key，得到一组「用户名」和「密码」
+#   4. 把下面三行填上并保存
+#   5. 验证：python ddns_update.py --force
+#
+# 免费版每 30 天需要在 No-IP 发来的邮件里点一次确认，漏了域名会被删除。
+#
+# 【不配置也能用】IPv6 一旦变化，ddns_update.py 会用项目已有的推送通道
 #（企业微信 / WxPusher / QQ邮箱 / Bark / Server酱）把新地址发到手机。
 
-DDNS_ZONE=
-DDNS_TOKEN=
+DDNS_PROVIDER=noip
+DDNS_HOST=yourname.ddns.net
+DDNS_USER=your-ddns-key-username
+DDNS_TOKEN=your-ddns-key-password

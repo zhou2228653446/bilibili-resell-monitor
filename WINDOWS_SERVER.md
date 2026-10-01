@@ -49,7 +49,13 @@ schtasks /query /tn BiliMonitor
 
 **2.（可选）配动态域名**
 
-家庭宽带的 IPv6 前缀会变，直接记 IP 会失效。到 [dynv6.com](https://dynv6.com) 免费注册一个域名（如 `bili-home.dynv6.net`），把 zone 和 token 填进 `ddns.conf`，之后手机上永远访问同一个网址。
+家庭宽带的 IPv6 前缀会变，直接记 IP 会失效。到 [No-IP](https://www.noip.com/sign-up)
+免费注册（不需要信用卡），建一个主机名（如 `your-host.ddns.net`）并生成 DDNS Key，
+把三项填进 `ddns.conf`，之后手机上永远访问同一个网址。
+
+> ⚠️ **别用 dynv6**：它的全部免费后缀（`dns.army` / `v6.army` / `dynv6.net` / `v6.rocks` 等）
+> 在国内 DNS 上查询一律返回 NXDOMAIN，手机根本解析不了。DuckDNS、FreeDNS 的更新接口被 RST
+> 阻断，3322（公云）免费版只有 7 天。实测只有 No-IP 可用，详见下文「地址变了怎么办」。
 
 不配也能用：`ddns_update.py` 检测到地址变化时会用项目已有的推送通道把新地址发到你手机。
 
@@ -147,8 +153,9 @@ C:\> tracert -6 2400:3200::1
 
 IPv6 前缀会变，所以需要一个固定入口。两条路，任选：
 
-**方案 A：动态域名（推荐，地址永不变）** —— 用 `ddns_update.py` + dynv6，见 `ddns.conf` 里的注释。
-填好 `DDNS_ZONE` / `DDNS_TOKEN` 后，手机上固定访问 `http://你的域名.dynv6.net:8000/?token=口令`。
+**方案 A：动态域名（推荐，地址永不变）** —— 用 `ddns_update.py` + No-IP，见 `ddns.conf` 里的注释。
+填好 `DDNS_HOST` / `DDNS_USER` / `DDNS_TOKEN` 后，手机上固定访问
+`http://你的域名.ddns.net:8000/?token=口令`。
 
 **方案 B：变更时推送通知（零成本，不用注册）** —— `ddns_update.py` 检测到地址变化时，
 会用看板「推送设置」里已启用的通道（QQ 邮箱 / WxPusher / Bark / 企业微信 / Server酱）
@@ -156,6 +163,30 @@ IPv6 前缀会变，所以需要一个固定入口。两条路，任选：
 
 两种方案都由计划任务 `BiliMonitorDDNS` 每 30 分钟自动跑一次（由 `install_server.bat` 创建）。
 手动验证：`python ddns_update.py --force`。
+
+### 为什么是 No-IP 而不是 dynv6（2026-10-01 实测）
+
+家用 DDNS 服务在国内大面积不可用，逐个实测结论：
+
+| 服务商 | 结果 |
+| :--- | :--- |
+| **No-IP** | ✅ 接口可达（80 / 8245 端口约 0.4s），`ddns.net` / `hopto.org` / `zapto.org` 后缀国内可解析 |
+| dynv6 | ❌ 全部 6 个免费后缀在国内 DNS 返回 NXDOMAIN（`dynv6.com` 官网本身正常——被屏蔽的是它发出去的免费域名，不是整个 dynv6） |
+| DuckDNS | ❌ `duckdns.org` 的 HTTPS 连接被 RST |
+| FreeDNS (afraid.org) | ❌ 端点不可达 |
+| 3322 / 公云 | ❌ 免费版仅 7 天试用，到期自动关闭域名 |
+| dynu | ❌ 端点不可达 |
+
+No-IP 的代价：**免费版每 30 天要在它发来的邮件里点一次确认**，漏了域名会被删除。
+
+**排查陷阱备忘**：本机 `nslookup` 的结果**不可信**——系统 DNS（`192.168.10.1`）受代理软件
+影响，连 `www.dynv6.com` 都解析失败、`curl` 直接 exit 6。判断某个域名是否被墙，必须用
+IP 直连的 DoH 绕开本地 DNS：
+
+```bash
+curl -sk --noproxy "*" "https://223.5.5.5/resolve?name=域名&type=A"                             # 阿里
+curl -sk --noproxy "*" "https://1.12.12.12/dns-query?name=域名&type=A&ct=application/dns-json"  # 腾讯
+```
 
 **查看当前 IPv6：**
 
