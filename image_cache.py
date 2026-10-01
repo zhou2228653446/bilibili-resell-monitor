@@ -32,20 +32,31 @@ _SSL_CTX = ssl._create_unverified_context()
 
 # 图片处理后缀白名单：只把「已知可安全追加」的原始 CDN 地址挑出来加后缀，
 # 避免对已带 @ 参数的 URL 重复追加导致 404。
-DEFAULT_THUMB_SUFFIX = "@480w_480h_1c.webp"
+DEFAULT_THUMB_SUFFIX = "@1080w_1080h_1c.webp"
 
 # 多档位后缀：用于「先低清占位、再加载高清」的渐进式加载。
-#   place  极小占位图，2~3KB，先铺满格子避免白屏/跳动
-#   mid    中等尺寸，列表滚动时的过渡档
-#   hi     高清档，用户点开大图时用（等同 DEFAULT_THUMB_SUFFIX）
-# 实测同一原图(197KB)各档体积：
-#   @120w = 2.3KB   @240w = 5.1KB   @320w = 7.4KB   @480w = 12.9KB   @800w = 24KB
+#   place  极小占位图，2~3KB，先铺满格子避免白屏/跳动（带宽无关，保持最小）
+#   mid    列表滚动时的过渡档
+#   hi     卡片/表格主图（等同 DEFAULT_THUMB_SUFFIX）
+#   big    弹窗大图，取到 CDN 上限
+#
+# 档位是早期为云服务器 3~5M 带宽压过的。本机千兆上传后不再需要妥协，
+# 已按 CDN 实际上限放开：实测 @1280w 与 @1600w 返回字节完全相同，
+# 说明这批商品原图就是 1280px 上限，再往上只是白花钱。
+# 实测同一原图(png 414KB)各档体积：
+#   @120w = 2.8KB   @240w = 6.8KB   @480w = 16.6KB
+#   @800w = 33KB    @1080w = 51KB   @1280w = 56KB（=原图，webp 后仅原图 13%）
 _SIZE_SUFFIX = {
     "place": "@120w_120h_1c.webp",
-    "mid": "@240w_240h_1c.webp",
-    "hi": "@480w_480h_1c.webp",
-    "big": "@800w_800h_1c.webp",
+    "mid": "@480w_480h_1c.webp",
+    "hi": "@1080w_1080h_1c.webp",
+    "big": "@1280w_1280h_1c.webp",
 }
+
+# ⚠️ 改动上面任一档位的尺寸后，必须清空 cache/img 再重启服务。
+# 缓存 key 只并入档位名（如 "hi"）而不含尺寸数值，因此改了尺寸旧文件照样
+# 命中，界面会继续显示旧分辨率的图，且永远不会回源重下。
+# 清空方式：stop_server.bat 后删除 cache/img 目录，再启动服务。
 
 # 支持追加缩略图后缀的宿主白名单（B站图片 CDN）
 _CDN_HOSTS = (
@@ -461,7 +472,7 @@ class ImageCache:
             self.log(f"[ImageCache] 清空失败: {e}")
             return False
 
-    def purge_oversized(self, max_kb=40):
+    def purge_oversized(self, max_kb=300):
         """
         清理「缩略档里混进的大图」这类脏缓存。
 
@@ -470,7 +481,10 @@ class ImageCache:
         反而变慢，且永远命中不会再重下。此方法按大小把它们删掉，
         下次访问即会重新拉取正确的缩略图。
 
-        :param max_kb: 超过该体积即视为脏数据（默认 40KB；正常缩略图均 < 30KB）
+        :param max_kb: 超过该体积即视为脏数据。默认 300KB——阈值必须高于高
+            清档的正常体积（1080w 约 51KB，1280w 约 56KB），否则会把正常
+            的高清图当成脏数据删掉，陷入「删了又下、下了又删」的循环。
+            真正的脏数据是回退存的 png 原图，普遍在几百 KB 以上。
         :return: (删除数量, 释放字节数)
         """
         limit = max_kb * 1024

@@ -1043,10 +1043,11 @@
     //   3) 返回长 Cache-Control，浏览器二次访问不再请求服务器，省流量。
     //
     // size 档位（服务端 _SIZE_SUFFIX 定义，同一原图按档位分别缓存）：
-    //   place = @120w  约 2~3KB   先铺满格子，避免白屏和布局跳动
-    //   mid   = @240w  约 5KB     列表小图
-    //   hi    = @480w  约 13KB    卡片/表格图（默认）
-    //   big   = @800w  约 24KB    弹窗大图
+    //   place = @120w   约 3KB    先铺满格子，避免白屏和布局跳动
+    //   mid   = @480w   约 17KB   列表小图
+    //   hi    = @1080w  约 51KB   卡片/表格图（默认）
+    //   big   = @1280w  约 56KB   弹窗大图（CDN 上限，等同原图）
+    // 档位按本机千兆带宽放开；若走手机流量嫌慢，调服务端 _SIZE_SUFFIX 即可。
     const FALLBACK_IMG = 'https://i0.hdslb.com/bfs/mall/mall/default.png';
     function imgSrc(url, size) {
       if (!url) return FALLBACK_IMG;

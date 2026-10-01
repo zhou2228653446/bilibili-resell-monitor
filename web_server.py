@@ -60,18 +60,22 @@ SCHEDULE_CONFIG_PATH = os.path.join(BASE_DIR, "schedule_config.json")
 
 # 商品图片本地缓存目录（内容寻址 + 缩略图牵引 + LRU 淘汰）
 IMG_CACHE_DIR = os.environ.get("IMG_CACHE_DIR", os.path.join(BASE_DIR, "cache", "img"))
-# 缓存容量上限（MB），默认 512MB
+# 缓存容量上限（MB），默认 2GB。
+# 图片档位放开到 1080w 后单张约 50KB，800+ 商品全量缓存约 50MB；
+# 放宽上限是为了让轮换下来的商品图也留在本地，避免反复回源。
 try:
-    IMG_CACHE_MAX_MB = int(os.environ.get("IMG_CACHE_MAX_MB", "512"))
+    IMG_CACHE_MAX_MB = int(os.environ.get("IMG_CACHE_MAX_MB", "2048"))
 except ValueError:
-    IMG_CACHE_MAX_MB = 512
+    IMG_CACHE_MAX_MB = 2048
 # 抓取后是否自动归档图片；设为 0 可关闭
 IMG_AUTO_PREFETCH = os.environ.get("IMG_AUTO_PREFETCH", "1") not in ("0", "false", "False")
-# 图片下载限速间隔（秒/张），保护服务器带宽
+# 图片下载限速间隔（秒/张）。原先为迁就云服务器 3~5M 带宽设 0.15，
+# 本机千兆上传不再是瓶颈，放宽到 0.05（约 20 张/秒）。
+# 若发现 B 站 CDN 开始返回 429，用环境变量调回：IMG_FETCH_INTERVAL=0.15
 try:
-    IMG_FETCH_INTERVAL = float(os.environ.get("IMG_FETCH_INTERVAL", "0.15"))
+    IMG_FETCH_INTERVAL = float(os.environ.get("IMG_FETCH_INTERVAL", "0.05"))
 except ValueError:
-    IMG_FETCH_INTERVAL = 0.15
+    IMG_FETCH_INTERVAL = 0.05
 
 # 访问口令（可选）。留空 = 不鉴权，保持历史行为。
 # 把本机当服务器并对公网开放时（IPv6 直连 / 路由器端口映射）务必设置：
