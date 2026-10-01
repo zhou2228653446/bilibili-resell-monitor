@@ -41,6 +41,7 @@ deploy.conf
 # 注意：gitignore 不支持行尾注释，注释必须单独占一行
 auth.conf
 ddns.conf
+schedule_config.json
 logs/
 .last_ipv6
 

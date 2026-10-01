@@ -55,6 +55,8 @@ CSV_PATH = os.path.join(BASE_DIR, "3c_products.csv")
 HISTORY_PATH = os.path.join(BASE_DIR, "3c_products_history.csv")
 DEALS_CACHE_PATH = os.path.join(BASE_DIR, "deals_cache.json")
 SCRIPT_PATH = os.path.join(BASE_DIR, "bili_resell.py")
+# 自动巡检设置持久化文件：没有它，服务重启后巡检设置会退回默认值
+SCHEDULE_CONFIG_PATH = os.path.join(BASE_DIR, "schedule_config.json")
 
 # 商品图片本地缓存目录（内容寻址 + 缩略图牵引 + LRU 淘汰）
 IMG_CACHE_DIR = os.environ.get("IMG_CACHE_DIR", os.path.join(BASE_DIR, "cache", "img"))
@@ -147,6 +149,43 @@ schedule_state = {
     "next_run": None,
     "_next_run_ts": 0,
 }
+
+
+def load_schedule_config():
+    """启动时从本地文件恢复巡检设置，保证重启后沿用上次的配置。"""
+    if not os.path.exists(SCHEDULE_CONFIG_PATH):
+        return
+    try:
+        with open(SCHEDULE_CONFIG_PATH, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        with schedule_lock:
+            for key in ("enabled", "interval_minutes", "category", "sort"):
+                if key in saved:
+                    schedule_state[key] = saved[key]
+            schedule_state["interval_minutes"] = max(1, int(schedule_state["interval_minutes"]))
+        if saved.get("enabled"):
+            print(f"[Scheduler] 已恢复自动巡检: 每 {schedule_state['interval_minutes']} 分钟, "
+                  f"分类={schedule_state['category']}, 排序={schedule_state['sort']}")
+    except (OSError, ValueError, TypeError) as e:
+        print(f"[Scheduler] 巡检配置读取失败，使用默认值: {e}")
+
+
+def save_schedule_config():
+    """把当前巡检设置写入本地文件（在持有 schedule_lock 时调用）。"""
+    try:
+        snapshot = {
+            "enabled": schedule_state["enabled"],
+            "interval_minutes": schedule_state["interval_minutes"],
+            "category": schedule_state["category"],
+            "sort": schedule_state["sort"],
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        tmp_path = SCHEDULE_CONFIG_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, SCHEDULE_CONFIG_PATH)
+    except OSError as e:
+        print(f"[Scheduler] 巡检配置保存失败: {e}")
 
 
 # 图片归档任务状态
@@ -789,6 +828,8 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 schedule_state["next_run"] = None
 
+            save_schedule_config()
+
             res_data = {
                 "enabled": schedule_state["enabled"],
                 "interval_minutes": schedule_state["interval_minutes"],
@@ -1206,7 +1247,8 @@ def main():
     print(f"💡 按 Ctrl + C 可停止服务器")
     print("=" * 60)
 
-    # 启动后台自动定时巡检调度线程
+    # 恢复上次的巡检设置，再启动后台自动定时巡检调度线程
+    load_schedule_config()
     threading.Thread(target=scheduler_worker, daemon=True).start()
 
     # 默认自动打开浏览器（双击 exe 或无参数启动时自动弹窗），除非指定 --no-open
