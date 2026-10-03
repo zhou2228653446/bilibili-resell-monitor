@@ -77,6 +77,16 @@ try:
 except ValueError:
     IMG_FETCH_INTERVAL = 0.05
 
+# IPv6 变化检测间隔（分钟）。原本由计划任务 BiliMonitorDDNS 负责，但 2026-10-03
+# 实测该任务并不存在，故改由看板自身的后台线程 ddns_worker 定期检查。
+# 服务由 run_server.bat 看门狗保活，进程活着就一定会更新。
+# 默认 5 分钟而非 30：域名失效的窗口正好落在最需要它的时刻（光猫重拨后），
+# 半小时的滞后足以让人以为域名坏了。5 分钟的探测开销可以忽略。
+try:
+    DDNS_CHECK_MINUTES = int(os.environ.get("DDNS_CHECK_MINUTES", "5"))
+except ValueError:
+    DDNS_CHECK_MINUTES = 5
+
 # 访问口令（可选）。留空 = 不鉴权，保持历史行为。
 # 把本机当服务器并对公网开放时（IPv6 直连 / 路由器端口映射）务必设置：
 # 本服务本身没有任何权限校验，任何能连到端口的人都能触发抓取、改推送配置、看数据。
@@ -231,6 +241,50 @@ def scheduler_worker():
                 daemon=True,
             )
             t.start()
+
+
+def ddns_worker():
+    """定期检测 IPv6 变化并更新动态域名。
+
+    原本这个职责交给计划任务 BiliMonitorDDNS（每 30 分钟）。但 2026-10-03 实测
+    那台机器上该计划任务并不存在——Get-ScheduledTask 枚举 160 个任务无本项目
+    条目，schtasks /query 又因账号非管理员被直接拒绝。域名记录会因此永远停在
+    注册当天的地址：看起来一切正常，实则早已失效，比不配域名更危险。
+
+    改挂在看板自己的后台线程上：run_server.bat 自带看门狗，进程活着就一定会
+    更新，不依赖任何外部计划任务。启动后先跑一次，之后每 DDNS_CHECK_MINUTES
+    分钟一次；未配置 DDNS 时静默跳过。
+
+    验证方式：把 .last_ipv6 改成任意别的地址，若 DDNS_CHECK_MINUTES 内被自动
+    写回真实地址，即说明线程在工作（比翻日志可靠，地址未变时它只在启动时打一行）。
+    """
+    interval_sec = max(5, DDNS_CHECK_MINUTES) * 60
+    next_ts = 0.0  # 启动后立即检查一次
+    while True:
+        time.sleep(3)
+        now = time.time()
+        if now < next_ts:
+            continue
+        next_ts = now + interval_sec
+        try:
+            import ddns_update
+            cfg = ddns_update.load_conf()
+            if not cfg.get("host") or not cfg.get("token"):
+                continue  # 未配置 DDNS，静默跳过
+            addr = ddns_update.get_global_ipv6()
+            if not addr:
+                print("[DDNS] 未探测到对外 IPv6，跳过本轮")
+                continue
+            if addr == ddns_update.read_last():
+                print(f"[DDNS] 地址未变化（{addr}）")
+                continue
+            ok, msg = ddns_update.update_ddns(cfg, addr)
+            ddns_update.write_last(addr)
+            print(f"[DDNS] {msg}")
+            if ok:
+                ddns_update.notify(addr, cfg.get("host", ""))
+        except Exception as e:
+            print(f"[Warn] DDNS 检测失败: {e}", file=sys.stderr)
 
 
 def parse_price(s):
@@ -1277,6 +1331,9 @@ def main():
     # 恢复上次的巡检设置，再启动后台自动定时巡检调度线程
     load_schedule_config()
     threading.Thread(target=scheduler_worker, daemon=True).start()
+
+    # IPv6 变化检测与动态域名更新（原先靠计划任务，实测那台机器上并不存在）
+    threading.Thread(target=ddns_worker, daemon=True).start()
 
     # 默认自动打开浏览器（双击 exe 或无参数启动时自动弹窗），除非指定 --no-open
     if not args.no_open:

@@ -56,7 +56,11 @@ if not errorlevel 1 (
     echo [%DATE% %TIME%] Port 8000 already in use, another instance is running. Exiting.
     exit /b 0
 )
-"%PY%" web_server.py --port 8000 --host :: --no-open >> "%LOGFILE%" 2>&1
+REM -u forces unbuffered stdout. Without it Python block-buffers whenever
+REM stdout is not a tty (which is always true here, we append to a log), so
+REM startup lines and the DDNS worker's periodic status stay in the buffer
+REM for minutes and never reach the log.
+"%PY%" -u web_server.py --port 8000 --host :: --no-open >> "%LOGFILE%" 2>&1
 echo [%DATE% %TIME%] Service exited with code %errorlevel%, restarting in 5s...
 timeout /t 5 /nobreak >nul 2>&1
 goto loop
