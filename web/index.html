@@ -78,28 +78,195 @@
       filter: none;
       transform: none;
     }
+
+    /* ==========================================================
+       移动端适配
+       页面骨架本身用的是 Tailwind 响应式类（grid-cols-2 sm:grid-cols-3
+       md:grid-cols-4 等），真正在窄屏出问题的有两处：
+         1) 头部 6 个 inline-flex 按钮不可换行，375px 宽必然撑破；
+         2) 「降价捡漏雷达」的卡片是 w-64 固定宽的 flex 子项。虽有
+            overflow-x-auto，但父级 section 是 display:block，宽度由内容
+            决定，累积出 2000px+ 的最小内容宽度，把整个 main 顶宽 ——
+            表现是手机上整页横向溢出、右侧内容被裁掉。
+       下面集中处理，不在每个 class 里塞断点。
+       ========================================================== */
+
+    /* 0. 关键：祖先链的宽度约束。min-width:0 让 flex/grid 子项可以收缩到
+          容器宽度以下（默认 min-width:auto 会拒绝收缩，这是 flex 布局最常见的
+          溢出根因）。配合下面的 overflow 一起收口。 */
+    main > section,
+    main > div,
+    #productsViewContainer,
+    #productsGrid {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    /* 兜底：任何意外撑宽的元素都不该让整页出现横向滚动。
+       只收窄屏——桌面端表格横向滚动是刻意设计，不能破坏。 */
+    @media (max-width: 767px) {
+      html, body {
+        overflow-x: hidden;
+      }
+      /* main 内部所有直接容器不允许超出视口 */
+      main > * {
+        max-width: 100vw;
+        overflow-x: hidden;
+      }
+    }
+
+    /* 1. 头部：允许换行，高度改为自适应（原本 h-16 固定） */
+    @media (max-width: 1023px) {
+      #topbar {
+        height: auto;
+        min-height: 4rem;
+        flex-wrap: wrap;
+        align-items: center;
+        row-gap: 0.5rem;
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+      }
+      /* 标题在小屏上允许收缩，不再把按钮挤出屏幕 */
+      #topbar .min-w-0 {
+        min-width: 0;
+      }
+      #topbar h1 {
+        font-size: 0.95rem;
+        line-height: 1.2;
+      }
+      /* 副标题（更新时间）单独占一行 */
+      #lastUpdatedText {
+        font-size: 0.68rem;
+      }
+      /* 按钮组：占满整行并横向滚动，比硬换行更省空间 */
+      #topbarActions {
+        width: 100%;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+      #topbarActions::-webkit-scrollbar {
+        display: none;
+      }
+      /* 按钮不被压扁，触摸目标不小于 40px（iOS HIG 建议 44px） */
+      #topbarActions > button {
+        flex: 0 0 auto;
+        min-height: 2.5rem;
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+      }
+    }
+
+    /* 2. 极端窄屏（<=400px，如 iPhone SE 竖屏 375px）进一步压缩 */
+    @media (max-width: 400px) {
+      #topbarActions > button {
+        font-size: 0.7rem;
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+      }
+      /* 这三个按钮文字太长，只留图标 + 状态点，标题在 tooltip 里 */
+      #notifyBtnText, #imgCacheBtnText {
+        display: none;
+      }
+    }
+
+    /* 3. 降价捡漏雷达：横向滚动容器必须真正独立于页面宽度。
+          w-64 卡片在手机上会占满屏幕，给它一个上限更合理。 */
+    @media (max-width: 480px) {
+      #alertsContainer {
+        /* 关键：不加这条，卡片的 256px 宽度会把 section 顶宽 */
+        width: 100%;
+        max-width: 100%;
+        padding-bottom: 0.5rem;
+        /* 让触摸滑动更顺 */
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x proximity;
+      }
+      #alertsContainer > * {
+        /* 手机上占满宽度减去 padding，滑动时一张一张对齐 */
+        width: 78vw;
+        max-width: 78vw;
+        scroll-snap-align: start;
+      }
+    }
+
+    /* 4. 表格：手机上给一个最小宽度，交给容器横向滚动，
+          否则 6 列会被压到每列不足 60px 完全不可读 */
+    @media (max-width: 767px) {
+      #productsTableContainer .overflow-x-auto table {
+        min-width: 640px;
+      }
+    }
+
+    /* 5. 弹窗：窄屏改为顶部对齐 + 内部滚动，避免内容被裁掉。
+          默认是 items-center 居中，内容过高时上下都会被切掉。 */
+    @media (max-width: 640px) {
+      .fixed.inset-0.items-center {
+        align-items: flex-start;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .fixed.inset-0 > div {
+        margin: 0;
+        border-radius: 0 0 1.5rem 1.5rem;
+        max-height: none;
+      }
+    }
+
+    /* 6. 触摸设备去掉 hover 效果，避免移动端「粘住」的 hover 态 */
+    @media (hover: none) {
+      .hover\:bg-slate-100:hover {
+        background-color: inherit;
+      }
+    }
+
+    /* 7. 区块标题行（降价雷达 / 表格视图等）：窄屏让标题可换行，
+          右侧操作按钮不被挤出。原来的 justify-between + 长中文标题
+          在 375px 下会把「查看全部」挤出可视区。 */
+    @media (max-width: 480px) {
+      main section > div:first-child,
+      main > div > div:first-child {
+        flex-wrap: wrap;
+        row-gap: 0.5rem;
+      }
+      /* 标题块可收缩，按钮保持在后面 */
+      main section > div:first-child > div:first-child {
+        min-width: 0;
+      }
+    }
+
+    /* 8. 商品卡片网格：窄屏改单列（原 grid-cols-2 在 375px 下每张仅 170px，
+          标题会被截成两三行，信息密度反而更差）。 */
+    @media (max-width: 480px) {
+      #productsGrid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.75rem;
+      }
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-[#0f1117] dark:text-slate-100 min-h-screen transition-colors duration-200 custom-scroll">
 
   <!-- 顶部导航栏 -->
   <header class="sticky top-0 z-30 bg-white/80 dark:bg-[#161822]/80 glass border-b border-slate-200/80 dark:border-slate-800">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-pink-500/25">
+    <div id="topbar" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-pink-500/25 flex-shrink-0">
           <i data-lucide="shopping-bag" class="w-5 h-5"></i>
         </div>
-        <div>
+        <div class="min-w-0">
           <div class="flex items-center space-x-2">
-            <h1 class="font-bold text-lg tracking-tight text-slate-900 dark:text-white">B站会员购转售 · 监控看板</h1>
-            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300">Live</span>
+            <h1 class="font-bold text-lg tracking-tight text-slate-900 dark:text-white truncate">B站会员购转售 · 监控看板</h1>
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-pink-100 text-pink-700 dark:bg-pink-950/60 dark:text-pink-300 flex-shrink-0">Live</span>
           </div>
           <p class="text-xs text-slate-500 dark:text-slate-400" id="lastUpdatedText">数据更新中...</p>
         </div>
       </div>
 
       <!-- 右侧控制区 -->
-      <div class="flex items-center space-x-2.5">
+      <div id="topbarActions" class="flex items-center space-x-2.5">
         <!-- 微信推送配置按钮 -->
         <button id="openNotifyModalBtn" class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
           <span class="w-2 h-2 rounded-full bg-slate-400" id="notifyStatusDot"></span>
@@ -396,7 +563,7 @@
 
   <!-- 模态框 1: 单商品历史价格走势与市集成交明细 -->
   <div id="historyModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-start justify-between">
         <div class="flex items-center space-x-3">
           <img id="modalImg" src="" alt="product" referrerpolicy="no-referrer" class="w-14 h-14 rounded-xl object-cover border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900" />
@@ -500,7 +667,7 @@
 
   <!-- 模态框 2: 爬虫控制台与实时抓取日志 -->
   <div id="crawlModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
           <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-500 flex items-center justify-center text-white shadow-md shadow-pink-500/25">
@@ -572,7 +739,7 @@
 
   <!-- 模态框 3: 自动定时巡检设置 -->
   <div id="scheduleModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
           <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
@@ -654,7 +821,7 @@
 
   <!-- 模态框 4: 微信捡漏通知推送设置 -->
   <div id="notifyModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
           <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-green-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
@@ -815,7 +982,7 @@
 
   <!-- 模态框 5: 商品图片本地缓存管理 -->
   <div id="imgCacheModal" class="fixed inset-0 z-50 bg-slate-950/60 glass hidden items-center justify-center p-4">
-    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+    <div class="bg-white dark:bg-[#181a24] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto max-h-[90vh] overflow-y-auto space-y-4 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2.5">
           <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-500 flex items-center justify-center text-white shadow-md shadow-sky-500/25">
