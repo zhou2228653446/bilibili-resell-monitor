@@ -67,10 +67,16 @@ schtasks /query /tn BiliMonitor
 | :--- | :--- |
 | 本机 | http://localhost:8000 （免口令，直接进） |
 | 家里连 WiFi 的设备 | http://192.168.10.82:8000/?token=你的口令 |
-| **手机流量 / 外网** | http://[2409:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx]:8000/?token=你的口令 ← IPv6 直连，地址会变，见下 |
+| **外网（首选）** | http://your-host.ddns.net:8000/?token=你的口令 ← 固定域名，永不变 |
+| 外网（IP 兜底） | http://[2409:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx]:8000/?token=你的口令 ← 地址会变 |
 | 备用（Tailscale） | http://100.72.21.82:8000/?token=你的口令 |
 
-IPv6 地址**必须加方括号**，端口写在方括号外。当前地址用 `python ddns_update.py --show` 查。
+域名已配置好（No-IP），IPv6 地址变化时 `ddns_update.py` 会自动更新记录，
+**手机只需收藏域名那条**。IP 兜底那条 IPv6 地址必须加方括号，端口写在方括号外；
+当前地址用 `python ddns_update.py --show` 查。
+
+> ⚠️ **域名只能有 AAAA 记录，不能有 A 记录**。本机 IPv4 入站不通，若存在 A 记录，
+> 客户端会先试 IPv4 再降级到 IPv6，白等一次超时。在 No-IP 后台把 A 记录删掉。
 
 要点：
 
