@@ -8,6 +8,8 @@ rem  multi-byte chars when a bat file crosses its read boundary)
 rem ============================================================
 
 set "TARGET6=2400:3200::1"
+rem Change this to your own ONT / ISP edge address (2nd hop of the
+rem traceroute above). It is only used to compare against the current run.
 set "HOP2=2409:xxxx:xxxx:xxxx::2"
 
 echo ============================================================
